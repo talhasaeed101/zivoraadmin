@@ -1,0 +1,206 @@
+.products-page {
+  width: 100%;
+}
+
+.product-name-cell {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.product-name-cell strong {
+  display: block;
+  font-weight: 500;
+  color: #000000;
+}
+
+.product-slug {
+  display: block;
+  font-size: 12px;
+  color: #767676;
+  margin-top: 2px;
+}
+
+.product-thumb {
+  width: 48px;
+  height: 48px;
+  object-fit: cover;
+  border: 1px solid #e5e5e5;
+  flex-shrink: 0;
+}
+
+.product-flags {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.product-flag {
+  font-size: 10px;
+  letter-spacing: 0.5px;
+  text-transform: uppercase;
+  padding: 3px 8px;
+  background: #f7f5f2;
+  color: #967259;
+  border: 1px solid #e5ddd4;
+}
+
+.admin-form-card-wide {
+  max-width: 920px;
+}
+
+.product-checkbox-group {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 20px;
+  padding-top: 8px;
+}
+
+.btn-text-danger {
+  color: #b91c1c;
+}
+
+.btn-text-danger:hover:not(:disabled) {
+  color: #991b1b;
+}
+
+.image-upload-field input[type='file'] {
+  font-family: Inter, sans-serif;
+  font-size: 13px;
+}
+
+.image-upload-input-hidden {
+  display: none;
+}
+
+.image-upload-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 10px;
+}
+
+.image-upload-header label {
+  margin: 0;
+}
+
+.image-upload-count {
+  font-family: Inter, sans-serif;
+  font-size: 12px;
+  letter-spacing: 0.4px;
+  color: #967259;
+}
+
+.image-upload-dropzone {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  min-height: 160px;
+  padding: 24px;
+  border: 2px dashed #d8d8d8;
+  background: #fafafa;
+  text-align: center;
+  cursor: pointer;
+  transition: border-color 0.2s ease, background 0.2s ease;
+}
+
+.image-upload-dropzone:hover,
+.image-upload-dropzone-active {
+  border-color: #967259;
+  background: #f7f2ee;
+}
+
+.image-upload-dropzone-full {
+  cursor: not-allowed;
+  opacity: 0.7;
+}
+
+.image-upload-dropzone-title {
+  margin: 0;
+  font-family: Inter, sans-serif;
+  font-size: 15px;
+  font-weight: 500;
+  color: #222;
+}
+
+.image-upload-dropzone-hint {
+  margin: 0;
+  max-width: 420px;
+  font-family: Inter, sans-serif;
+  font-size: 13px;
+  color: #767676;
+}
+
+.image-upload-browse-btn {
+  margin-top: 4px;
+}
+
+.image-preview-card {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 10px;
+  padding: 10px;
+  border: 1px solid #e5e5e5;
+  background: #fff;
+}
+
+.image-preview-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(140px, 1fr));
+  gap: 16px;
+  margin-top: 12px;
+}
+
+.image-preview {
+  width: 140px;
+  height: 140px;
+  object-fit: cover;
+  border: 1px solid #e5e5e5;
+  background: #fafafa;
+}
+
+.image-preview-pending {
+  border: 1px dashed #967259;
+  padding: 10px;
+}
+
+.image-preview-label {
+  font-family: Inter, sans-serif;
+  font-size: 11px;
+  letter-spacing: 0.5px;
+  text-transform: uppercase;
+  color: #967259;
+}
+
+.image-preview-badge {
+  font-family: Inter, sans-serif;
+  font-size: 11px;
+  letter-spacing: 0.5px;
+  text-transform: uppercase;
+  color: #166534;
+}
+
+.upload-error {
+  margin: 8px 0 0;
+  font-family: Inter, sans-serif;
+  font-size: 13px;
+  color: #b91c1c;
+}
+
+.upload-status {
+  margin: 8px 0 0;
+  font-family: Inter, sans-serif;
+  font-size: 13px;
+  color: #967259;
+}
+
+@media (max-width: 1100px) {
+  .data-table {
+    min-width: 900px;
+  }
+}

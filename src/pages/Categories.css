@@ -1,0 +1,80 @@
+.categories-page {
+  width: 100%;
+}
+
+.category-name-cell {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.category-thumb {
+  width: 40px;
+  height: 40px;
+  object-fit: cover;
+  border: 1px solid #e5e5e5;
+  flex-shrink: 0;
+}
+
+.btn-text-danger {
+  color: #b91c1c;
+}
+
+.btn-text-danger:hover:not(:disabled) {
+  color: #991b1b;
+}
+
+.image-upload-field input[type='file'] {
+  font-family: Inter, sans-serif;
+  font-size: 13px;
+}
+
+.image-preview-card {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 10px;
+  margin-top: 12px;
+}
+
+.image-preview-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(140px, 1fr));
+  gap: 16px;
+  margin-top: 12px;
+}
+
+.image-preview {
+  width: 140px;
+  height: 140px;
+  object-fit: cover;
+  border: 1px solid #e5e5e5;
+  background: #fafafa;
+}
+
+.image-preview-pending {
+  border: 1px dashed #967259;
+  padding: 10px;
+}
+
+.image-preview-label {
+  font-family: Inter, sans-serif;
+  font-size: 11px;
+  letter-spacing: 0.5px;
+  text-transform: uppercase;
+  color: #967259;
+}
+
+.upload-error {
+  margin: 8px 0 0;
+  font-family: Inter, sans-serif;
+  font-size: 13px;
+  color: #b91c1c;
+}
+
+.upload-status {
+  margin: 8px 0 0;
+  font-family: Inter, sans-serif;
+  font-size: 13px;
+  color: #967259;
+}
