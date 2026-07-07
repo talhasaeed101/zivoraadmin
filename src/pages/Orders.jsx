@@ -146,8 +146,10 @@ export default function Orders() {
             >
               <option value="">All Payment Statuses</option>
               <option value="pending">Pending</option>
+              <option value="Pending Payment Verification">Pending Verification</option>
               <option value="paid">Paid</option>
               <option value="failed">Failed</option>
+              <option value="Rejected">Rejected</option>
             </select>
             <button type="submit" className="btn-secondary">
               Apply
@@ -191,7 +193,7 @@ export default function Orders() {
                       <td>{formatPrice(order.total)}</td>
                       <td>{order.totalItems ?? order.items?.length ?? 0}</td>
                       <td>
-                        <span className={`status-badge status-badge-${order.paymentStatus}`}>
+                        <span className={`status-badge status-badge-${(order.paymentStatus || '').toLowerCase().replace(/\s+/g, '-')}`}>
                           {order.paymentStatus}
                         </span>
                       </td>

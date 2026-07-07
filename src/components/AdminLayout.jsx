@@ -1,14 +1,19 @@
 import { NavLink, useNavigate } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext.jsx';
+import NotificationBell from './NotificationBell.jsx';
 import './AdminLayout.css';
 
 const navLinks = [
   { label: 'Dashboard', to: '/' },
+  { label: 'Analytics', to: '/analytics' },
   { label: 'Categories', to: '/categories' },
   { label: 'Products', to: '/products' },
   { label: 'Orders', to: '/orders' },
+  { label: 'Customers', to: '/customers' },
   { label: 'Reviews', to: '/reviews' },
   { label: 'Promo Codes', to: '/promo-codes' },
+  { label: 'Messages', to: '/messages' },
+  { label: 'Newsletter', to: '/newsletter' },
 ];
 
 export default function AdminLayout({ title, label = 'Admin Panel', children }) {
@@ -56,6 +61,7 @@ export default function AdminLayout({ title, label = 'Admin Panel', children }) 
           </div>
 
           <div className="header-actions">
+            <NotificationBell />
             <div className="header-admin">
               <span className="header-admin-name">{admin?.name || 'Admin'}</span>
               <span className="header-admin-email">{admin?.email}</span>

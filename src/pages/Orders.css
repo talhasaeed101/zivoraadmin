@@ -26,6 +26,11 @@
   color: #c2410c;
 }
 
+.status-badge-pending-payment-verification {
+  background: #fef3c7;
+  color: #d97706;
+}
+
 .status-badge-confirmed,
 .status-badge-processing {
   background: #eff6ff;
@@ -47,6 +52,11 @@
 .status-badge-failed {
   background: #fef2f2;
   color: #b91c1c;
+}
+
+.status-badge-rejected {
+  background: #fee2e2;
+  color: #dc2626;
 }
 
 .order-detail-toolbar {

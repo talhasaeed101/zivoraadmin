@@ -288,8 +288,10 @@ export default function OrderDetails() {
                     disabled={saving}
                   >
                     <option value="pending">Pending</option>
+                    <option value="Pending Payment Verification">Pending Payment Verification</option>
                     <option value="paid">Paid</option>
                     <option value="failed">Failed</option>
+                    <option value="Rejected">Rejected</option>
                   </select>
                 </div>
 

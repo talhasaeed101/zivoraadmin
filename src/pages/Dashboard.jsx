@@ -219,7 +219,7 @@ export default function Dashboard() {
                         </td>
                         <td>{formatPrice(order.total)}</td>
                         <td>
-                          <span className={`status-badge status-badge-${order.paymentStatus}`}>
+                          <span className={`status-badge status-badge-${(order.paymentStatus || '').toLowerCase().replace(/\s+/g, '-')}`}>
                             {order.paymentStatus}
                           </span>
                         </td>

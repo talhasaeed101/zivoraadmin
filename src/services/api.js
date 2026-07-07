@@ -169,6 +169,45 @@ export const dashboardApi = {
   getTopProducts: () => request('/admin/dashboard/top-products'),
 };
 
+export const customerApi = {
+  getCustomers: (params = {}) => request(`/admin/customers${buildQueryString(params)}`),
+
+  getCustomer: (id) => request(`/admin/customers/${id}`),
+
+  updateStatus: (id, status) =>
+    request(`/admin/customers/${id}/status`, {
+      method: 'PATCH',
+      body: JSON.stringify({ status }),
+    }),
+};
+
+export const notificationApi = {
+  getNotifications: (params = {}) => request(`/admin/notifications${buildQueryString(params)}`),
+
+  markRead: (id) => request(`/admin/notifications/${id}/read`, { method: 'PATCH' }),
+
+  markAllRead: () => request('/admin/notifications/read-all', { method: 'PATCH' }),
+};
+
+export const analyticsApi = {
+  getAnalytics: (days = 30) => request(`/admin/analytics?days=${days}`),
+};
+
+export const contactApi = {
+  getMessages: (params = {}) => request(`/admin/contact-messages${buildQueryString(params)}`),
+
+  updateStatus: (id, status) =>
+    request(`/admin/contact-messages/${id}/status`, {
+      method: 'PATCH',
+      body: JSON.stringify({ status }),
+    }),
+};
+
+export const newsletterApi = {
+  getSubscribers: (params = {}) =>
+    request(`/admin/newsletter-subscribers${buildQueryString(params)}`),
+};
+
 export const uploadApi = {
   uploadProductImages: (files) => {
     const formData = new FormData();
