@@ -159,6 +159,25 @@
   margin-top: 2px;
 }
 
+.order-customization-list {
+  margin: 8px 0 0;
+  padding-left: 16px;
+  color: #5f5f5f;
+  font-size: 12px;
+  line-height: 1.5;
+}
+
+.order-customization-list li {
+  margin-bottom: 2px;
+}
+
+.order-item-extra {
+  display: block;
+  margin-top: 4px;
+  font-size: 11px;
+  color: #967259;
+}
+
 .order-totals {
   margin-top: 24px;
   margin-left: auto;

@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react';
 import { Link, useParams } from 'react-router-dom';
 import AdminLayout from '../components/AdminLayout.jsx';
 import { orderApi } from '../services/api.js';
+import { buildCustomizationSummaryLines } from '../utils/customizationSummary.js';
 import './Orders.css';
 
 const formatPrice = (value) => {
@@ -33,6 +34,19 @@ const formatDate = (value) => {
 const getVariantLabel = (item) => {
   const parts = [item.ringSize, item.metalColor].filter(Boolean);
   return parts.length > 0 ? parts.join(' / ') : '—';
+};
+
+const formatPaymentMethod = (method) => {
+  switch (method) {
+    case 'cod':
+      return 'Cash on Delivery';
+    case 'bank_transfer':
+      return 'Bank Transfer (Meezan Bank)';
+    case 'online':
+      return 'Online Payment';
+    default:
+      return method || '—';
+  }
 };
 
 export default function OrderDetails() {
@@ -159,7 +173,7 @@ export default function OrderDetails() {
                   </div>
                   <div>
                     <span className="order-detail-label">Payment Method</span>
-                    <strong>{(order.paymentMethod || 'cod').toUpperCase()}</strong>
+                    <strong>{formatPaymentMethod(order.paymentMethod)}</strong>
                   </div>
                 </div>
               </section>
@@ -224,12 +238,26 @@ export default function OrderDetails() {
                             <div>
                               <strong>{item.title}</strong>
                               {item.sku && <span className="order-item-sku">{item.sku}</span>}
+                              {item.isCustomized && (
+                                <ul className="order-customization-list">
+                                  {buildCustomizationSummaryLines(item.customization).map((line) => (
+                                    <li key={`${line.label}-${line.value}`}>
+                                      <strong>{line.label}:</strong> {line.value}
+                                    </li>
+                                  ))}
+                                </ul>
+                              )}
                             </div>
                           </div>
                         </td>
-                        <td>{getVariantLabel(item)}</td>
+                        <td>
+                          <div>{getVariantLabel(item)}</div>
+                          {item.extraPrice > 0 && (
+                            <span className="order-item-extra">+{formatPrice(item.extraPrice)} extras</span>
+                          )}
+                        </td>
                         <td>{item.quantity}</td>
-                        <td>{formatPrice(item.price)}</td>
+                        <td>{formatPrice(item.price * item.quantity)}</td>
                       </tr>
                     ))}
                   </tbody>

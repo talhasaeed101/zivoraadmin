@@ -1,13 +1,15 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { Link, useNavigate, useParams } from 'react-router-dom';
 import AdminLayout from '../components/AdminLayout.jsx';
+import CustomizationOptionsSection from '../components/CustomizationOptionsSection.jsx';
 import { categoryApi, productApi, uploadApi } from '../services/api.js';
+import { getDefaultCustomizationOptions, mergeCustomizationOptions } from '../constants/customization.js';
 import { categoryNeedsRingSize } from '../utils/categories.js';
 import './Products.css';
 
 const MAX_PRODUCT_IMAGES = 8;
 
-const defaultForm = {
+const createDefaultForm = () => ({
   title: '',
   slug: '',
   shortDescription: '',
@@ -24,8 +26,10 @@ const defaultForm = {
   isFeatured: false,
   isTrending: false,
   isNewArrival: false,
+  isCustomizable: false,
+  customizationOptions: getDefaultCustomizationOptions(),
   status: 'active',
-};
+});
 
 const parseCommaList = (value) =>
   value
@@ -40,7 +44,7 @@ export default function ProductForm() {
   const navigate = useNavigate();
   const isEditing = Boolean(id);
 
-  const [form, setForm] = useState(defaultForm);
+  const [form, setForm] = useState(createDefaultForm);
   const [categories, setCategories] = useState([]);
   const [imageUrls, setImageUrls] = useState([]);
   const [pendingFiles, setPendingFiles] = useState([]);
@@ -103,6 +107,8 @@ export default function ProductForm() {
           isFeatured: Boolean(product.isFeatured),
           isTrending: Boolean(product.isTrending),
           isNewArrival: Boolean(product.isNewArrival),
+          isCustomizable: Boolean(product.isCustomizable),
+          customizationOptions: mergeCustomizationOptions(product.customizationOptions),
           status: product.status || 'active',
         });
         setImageUrls(product.images || []);
@@ -248,6 +254,10 @@ export default function ProductForm() {
       isFeatured: form.isFeatured,
       isTrending: form.isTrending,
       isNewArrival: form.isNewArrival,
+      isCustomizable: form.isCustomizable,
+      customizationOptions: form.isCustomizable
+        ? form.customizationOptions
+        : getDefaultCustomizationOptions(),
       status: form.status,
     };
 
@@ -653,7 +663,29 @@ export default function ProductForm() {
                 />
                 Is New Arrival
               </label>
+              <label className="admin-form-checkbox">
+                <input
+                  type="checkbox"
+                  name="isCustomizable"
+                  checked={form.isCustomizable}
+                  onChange={handleChange}
+                  disabled={saving || uploading}
+                />
+                Customizable Product
+              </label>
             </div>
+
+            {form.isCustomizable && (
+              <div className="admin-form-field admin-form-field-full">
+                <CustomizationOptionsSection
+                  options={form.customizationOptions}
+                  onChange={(nextOptions) =>
+                    setForm((prev) => ({ ...prev, customizationOptions: nextOptions }))
+                  }
+                  disabled={saving || uploading}
+                />
+              </div>
+            )}
           </div>
 
           <div className="admin-form-actions">
