@@ -239,6 +239,9 @@ export default function Products() {
                         {product.isFeatured && <span className="product-flag">Featured</span>}
                         {product.isTrending && <span className="product-flag">Trending</span>}
                         {product.isNewArrival && <span className="product-flag">New</span>}
+                        {product.isCustomizable && (
+                          <span className="product-flag product-flag-custom">Customizable</span>
+                        )}
                       </div>
                     </td>
                     <td>
