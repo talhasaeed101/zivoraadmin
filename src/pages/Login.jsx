@@ -12,6 +12,7 @@ export default function Login() {
   const [errors, setErrors] = useState({});
   const [apiError, setApiError] = useState('');
   const [loading, setLoading] = useState(false);
+  const [showPassword, setShowPassword] = useState(false);
 
   if (authLoading) {
     return (
@@ -83,7 +84,7 @@ export default function Login() {
               type="email"
               value={email}
               onChange={(e) => setEmail(e.target.value)}
-              placeholder="Zivorah.store1979@gmail.com"
+              placeholder="admin.secure981@zivorah.store"
               autoComplete="email"
               disabled={loading}
             />
@@ -92,15 +93,26 @@ export default function Login() {
 
           <div className="login-field">
             <label htmlFor="password">Password</label>
-            <input
-              id="password"
-              type="password"
-              value={password}
-              onChange={(e) => setPassword(e.target.value)}
-              placeholder="Enter your password"
-              autoComplete="current-password"
-              disabled={loading}
-            />
+            <div className="password-input-container">
+              <input
+                id="password"
+                type={showPassword ? 'text' : 'password'}
+                value={password}
+                onChange={(e) => setPassword(e.target.value)}
+                placeholder="Enter your password"
+                autoComplete="current-password"
+                disabled={loading}
+              />
+              <button 
+                type="button" 
+                className="password-toggle"
+                onClick={() => setShowPassword(!showPassword)}
+                tabIndex="-1"
+                title={showPassword ? "Hide password" : "Show password"}
+              >
+                {showPassword ? '🙈' : '👁️'}
+              </button>
+            </div>
             {errors.password && <span className="login-field-error">{errors.password}</span>}
           </div>
 
