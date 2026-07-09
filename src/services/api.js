@@ -39,10 +39,21 @@ async function request(endpoint, options = {}) {
     headers.Authorization = `Bearer ${token}`;
   }
 
-  const response = await fetch(`${API_BASE_URL}${endpoint}`, {
-    ...options,
-    headers,
-  });
+  let response;
+
+  try {
+    response = await fetch(`${API_BASE_URL}${endpoint}`, {
+      ...options,
+      headers,
+    });
+  } catch (networkError) {
+    const message =
+      networkError?.message?.includes('Failed to fetch') ||
+      networkError?.name === 'TypeError'
+        ? 'Network error: unable to reach the server. Check your connection, API URL, and file sizes.'
+        : networkError.message || 'Network request failed';
+    throw new Error(message, { cause: networkError });
+  }
 
   const data = await response.json().catch(() => ({}));
 
@@ -54,7 +65,10 @@ async function request(endpoint, options = {}) {
   }
 
   if (!response.ok) {
-    throw new Error(data.message || 'Something went wrong');
+    const details = data.errors?.length
+      ? `: ${data.errors.map((item) => item.msg || item.message).filter(Boolean).join(', ')}`
+      : '';
+    throw new Error((data.message || 'Something went wrong') + details);
   }
 
   return data;
@@ -216,13 +230,43 @@ export const newsletterApi = {
 };
 
 export const uploadApi = {
-  uploadProductImages: (files) => {
-    const formData = new FormData();
-    files.forEach((file) => {
-      formData.append('images', file);
-    });
+  uploadProductImages: async (files, { chunkSize = 3 } = {}) => {
+    const uploadedUrls = [];
 
-    return request('/uploads/product-images', {
+    for (let index = 0; index < files.length; index += chunkSize) {
+      const chunk = files.slice(index, index + chunkSize);
+      const formData = new FormData();
+
+      chunk.forEach((file) => {
+        formData.append('images', file);
+      });
+
+      const response = await request('/uploads/product-images', {
+        method: 'POST',
+        body: formData,
+      });
+
+      uploadedUrls.push(...(response.data?.urls || []));
+    }
+
+    return { data: { urls: uploadedUrls } };
+  },
+
+  uploadProductVideo: (file) => {
+    const formData = new FormData();
+    formData.append('video', file);
+
+    return request('/uploads/product-video', {
+      method: 'POST',
+      body: formData,
+    });
+  },
+
+  uploadSizeChartImage: (file) => {
+    const formData = new FormData();
+    formData.append('image', file);
+
+    return request('/uploads/size-chart', {
       method: 'POST',
       body: formData,
     });

@@ -5,9 +5,17 @@ import CustomizationOptionsSection from '../components/CustomizationOptionsSecti
 import { categoryApi, productApi, uploadApi } from '../services/api.js';
 import { getDefaultCustomizationOptions, mergeCustomizationOptions } from '../constants/customization.js';
 import { categoryNeedsRingSize } from '../utils/categories.js';
+import {
+  buildVariantCombinations,
+  createDefaultVariationGroups,
+  DEFAULT_RING_SIZE_OPTIONS,
+  deriveLegacyFieldsFromVariations,
+  mergeVariantsWithCombinations,
+} from '../utils/productVariations.js';
 import './Products.css';
 
 const MAX_PRODUCT_IMAGES = 8;
+const UPLOAD_CHUNK_SIZE = 3;
 
 const createDefaultForm = () => ({
   title: '',
@@ -15,6 +23,7 @@ const createDefaultForm = () => ({
   shortDescription: '',
   description: '',
   category: '',
+  brand: '',
   price: '',
   oldPrice: '',
   sku: '',
@@ -39,6 +48,25 @@ const parseCommaList = (value) =>
 
 const joinCommaList = (items) => (items && items.length > 0 ? items.join(', ') : '');
 
+const normalizeVariationGroups = (groups, showRingSizes) => {
+  if (groups?.length) {
+    return groups.map((group) => ({
+      name: group.name || '',
+      options: [...(group.options || [])],
+    }));
+  }
+
+  const defaults = createDefaultVariationGroups();
+
+  if (showRingSizes) {
+    defaults[1].options = [...DEFAULT_RING_SIZE_OPTIONS];
+  } else {
+    defaults.splice(1, 1);
+  }
+
+  return defaults;
+};
+
 export default function ProductForm() {
   const { id } = useParams();
   const navigate = useNavigate();
@@ -49,6 +77,16 @@ export default function ProductForm() {
   const [imageUrls, setImageUrls] = useState([]);
   const [pendingFiles, setPendingFiles] = useState([]);
   const [manualImageUrls, setManualImageUrls] = useState('');
+  const [videoUrl, setVideoUrl] = useState('');
+  const [pendingVideoFile, setPendingVideoFile] = useState(null);
+  const [addVariations, setAddVariations] = useState(false);
+  const [variationGroups, setVariationGroups] = useState(createDefaultVariationGroups());
+  const [variants, setVariants] = useState([]);
+  const [sizeChartEnabled, setSizeChartEnabled] = useState(false);
+  const [sizeChartUrl, setSizeChartUrl] = useState('');
+  const [pendingSizeChartFile, setPendingSizeChartFile] = useState(null);
+  const [batchStock, setBatchStock] = useState('');
+  const [batchPrice, setBatchPrice] = useState('');
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [uploading, setUploading] = useState(false);
@@ -56,8 +94,18 @@ export default function ProductForm() {
   const [uploadError, setUploadError] = useState('');
   const pendingFilesRef = useRef(pendingFiles);
   const imageInputRef = useRef(null);
+  const videoInputRef = useRef(null);
+  const sizeChartInputRef = useRef(null);
 
-  pendingFilesRef.current = pendingFiles;
+  useEffect(() => {
+    pendingFilesRef.current = pendingFiles;
+  }, [pendingFiles]);
+
+  const buildSyncedVariants = (groups, currentVariants) =>
+    mergeVariantsWithCombinations(buildVariantCombinations(groups), currentVariants, {
+      stock: form.stock || 0,
+      price: form.price || '',
+    });
 
   useEffect(() => {
     return () => {
@@ -66,6 +114,12 @@ export default function ProductForm() {
           URL.revokeObjectURL(item.previewUrl);
         }
       });
+      if (pendingVideoFile?.previewUrl) {
+        URL.revokeObjectURL(pendingVideoFile.previewUrl);
+      }
+      if (pendingSizeChartFile?.previewUrl) {
+        URL.revokeObjectURL(pendingSizeChartFile.previewUrl);
+      }
     };
   }, []);
 
@@ -86,16 +140,18 @@ export default function ProductForm() {
 
         const productResponse = await productApi.getProduct(id);
         const product = productResponse.data;
+        const categoryId =
+          typeof product.category === 'object' ? product.category._id : product.category || '';
+        const selectedCategory = categoryList.find((category) => category._id === categoryId);
+        const showRingSizes = categoryNeedsRingSize(selectedCategory);
 
         setForm({
           title: product.title || '',
           slug: product.slug || '',
           shortDescription: product.shortDescription || '',
           description: product.description || '',
-          category:
-            typeof product.category === 'object'
-              ? product.category._id
-              : product.category || '',
+          category: categoryId,
+          brand: product.brand || '',
           price: product.price ?? '',
           oldPrice: product.oldPrice ?? '',
           sku: product.sku || '',
@@ -112,6 +168,12 @@ export default function ProductForm() {
           status: product.status || 'active',
         });
         setImageUrls(product.images || []);
+        setVideoUrl(product.video || '');
+        setAddVariations(Boolean(product.variationGroups?.length || product.variants?.length));
+        setVariationGroups(normalizeVariationGroups(product.variationGroups, showRingSizes));
+        setVariants(product.variants || []);
+        setSizeChartEnabled(Boolean(product.sizeChart?.enabled));
+        setSizeChartUrl(product.sizeChart?.imageUrl || '');
       } catch (err) {
         setError(err.message || 'Failed to load product');
       } finally {
@@ -132,38 +194,37 @@ export default function ProductForm() {
 
   const showRingSizes = categoryNeedsRingSize(selectedCategory);
   const remainingImageSlots = MAX_PRODUCT_IMAGES - totalSelectedImages;
+  const previewImage = pendingFiles[0]?.previewUrl || imageUrls[0] || '';
 
   const handleChange = (event) => {
     const { name, value, type, checked } = event.target;
 
     if (name === 'category') {
       const nextCategory = categories.find((category) => category._id === value);
+      const needsRingSize = categoryNeedsRingSize(nextCategory);
 
       setForm((prev) => ({
         ...prev,
         category: value,
-        ringSizes: categoryNeedsRingSize(nextCategory) ? prev.ringSizes : '',
+        ringSizes: needsRingSize ? prev.ringSizes : '',
       }));
+
+      if (addVariations) {
+        setVariationGroups(normalizeVariationGroups(variationGroups, needsRingSize));
+      }
+
       return;
     }
 
     setForm((prev) => ({
       ...prev,
-      [name]:
-        type === 'checkbox'
-          ? checked
-          : name === 'stock'
-            ? Number(value)
-            : value,
+      [name]: type === 'checkbox' ? checked : name === 'stock' ? Number(value) : value,
     }));
   };
 
   const handleImageFilesChange = (event) => {
     const files = Array.from(event.target.files || []);
-
-    if (!files.length) {
-      return;
-    }
+    if (!files.length) return;
 
     const availableSlots = MAX_PRODUCT_IMAGES - imageUrls.length - pendingFiles.length;
 
@@ -197,14 +258,137 @@ export default function ProductForm() {
   const handleRemovePendingFile = (index) => {
     setPendingFiles((current) => {
       const removed = current[index];
-
       if (removed?.previewUrl) {
         URL.revokeObjectURL(removed.previewUrl);
       }
-
       return current.filter((_, itemIndex) => itemIndex !== index);
     });
     setUploadError('');
+  };
+
+  const handleVideoChange = (event) => {
+    const file = event.target.files?.[0];
+    event.target.value = '';
+
+    if (!file) return;
+
+    if (pendingVideoFile?.previewUrl) {
+      URL.revokeObjectURL(pendingVideoFile.previewUrl);
+    }
+
+    setPendingVideoFile({
+      file,
+      previewUrl: file.type.startsWith('video/') ? URL.createObjectURL(file) : '',
+    });
+    setUploadError('');
+  };
+
+  const handleSizeChartChange = (event) => {
+    const file = event.target.files?.[0];
+    event.target.value = '';
+
+    if (!file) return;
+
+    if (pendingSizeChartFile?.previewUrl) {
+      URL.revokeObjectURL(pendingSizeChartFile.previewUrl);
+    }
+
+    setPendingSizeChartFile({
+      file,
+      previewUrl: URL.createObjectURL(file),
+    });
+    setSizeChartEnabled(true);
+    setUploadError('');
+  };
+
+  const updateVariationGroupName = (index, name) => {
+    setVariationGroups((current) => {
+      const next = current.map((group, groupIndex) =>
+        groupIndex === index ? { ...group, name } : group
+      );
+      if (addVariations) {
+        setVariants((currentVariants) => buildSyncedVariants(next, currentVariants));
+      }
+      return next;
+    });
+  };
+
+  const updateVariationOption = (groupIndex, optionIndex, value) => {
+    setVariationGroups((current) => {
+      const next = current.map((group, index) => {
+        if (index !== groupIndex) return group;
+        const options = [...group.options];
+        options[optionIndex] = value;
+        return { ...group, options };
+      });
+      if (addVariations) {
+        setVariants((currentVariants) => buildSyncedVariants(next, currentVariants));
+      }
+      return next;
+    });
+  };
+
+  const addVariationOption = (groupIndex) => {
+    setVariationGroups((current) => {
+      const next = current.map((group, index) =>
+        index === groupIndex ? { ...group, options: [...group.options, ''] } : group
+      );
+      if (addVariations) {
+        setVariants((currentVariants) => buildSyncedVariants(next, currentVariants));
+      }
+      return next;
+    });
+  };
+
+  const removeVariationOption = (groupIndex, optionIndex) => {
+    setVariationGroups((current) => {
+      const next = current.map((group, index) => {
+        if (index !== groupIndex) return group;
+        return { ...group, options: group.options.filter((_, idx) => idx !== optionIndex) };
+      });
+      if (addVariations) {
+        setVariants((currentVariants) => buildSyncedVariants(next, currentVariants));
+      }
+      return next;
+    });
+  };
+
+  const addVariationGroup = () => {
+    setVariationGroups((current) => {
+      const next = [...current, { name: '', options: [''] }];
+      if (addVariations) {
+        setVariants((currentVariants) => buildSyncedVariants(next, currentVariants));
+      }
+      return next;
+    });
+  };
+
+  const removeVariationGroup = (groupIndex) => {
+    setVariationGroups((current) => {
+      const next = current.filter((_, index) => index !== groupIndex);
+      if (addVariations) {
+        setVariants((currentVariants) => buildSyncedVariants(next, currentVariants));
+      }
+      return next;
+    });
+  };
+
+  const updateVariantField = (index, field, value) => {
+    setVariants((current) =>
+      current.map((variant, variantIndex) =>
+        variantIndex === index ? { ...variant, [field]: value } : variant
+      )
+    );
+  };
+
+  const applyBatchVariantValues = () => {
+    setVariants((current) =>
+      current.map((variant) => ({
+        ...variant,
+        stock: batchStock !== '' ? Number(batchStock) : variant.stock,
+        price: batchPrice !== '' ? Number(batchPrice) : variant.price,
+      }))
+    );
   };
 
   const handleSubmit = async (event) => {
@@ -214,41 +398,63 @@ export default function ProductForm() {
     setUploadError('');
 
     let nextImageUrls = [...imageUrls];
+    let nextVideoUrl = videoUrl;
+    let nextSizeChartUrl = sizeChartUrl;
 
-    if (pendingFiles.length > 0) {
-      setUploading(true);
-
-      try {
+    try {
+      if (pendingFiles.length > 0) {
+        setUploading(true);
         const response = await uploadApi.uploadProductImages(
-          pendingFiles.map((item) => item.file)
+          pendingFiles.map((item) => item.file),
+          { chunkSize: UPLOAD_CHUNK_SIZE }
         );
-        const uploadedUrls = response.data?.urls || [];
-        nextImageUrls = [...nextImageUrls, ...uploadedUrls];
-      } catch (err) {
-        setUploadError(err.message || 'Failed to upload images');
-        setSaving(false);
-        setUploading(false);
-        return;
-      } finally {
-        setUploading(false);
+        nextImageUrls = [...nextImageUrls, ...(response.data?.urls || [])];
       }
+
+      if (pendingVideoFile?.file) {
+        setUploading(true);
+        const response = await uploadApi.uploadProductVideo(pendingVideoFile.file);
+        nextVideoUrl = response.data?.url || nextVideoUrl;
+      }
+
+      if (pendingSizeChartFile?.file) {
+        setUploading(true);
+        const response = await uploadApi.uploadSizeChartImage(pendingSizeChartFile.file);
+        nextSizeChartUrl = response.data?.url || nextSizeChartUrl;
+      }
+    } catch (err) {
+      setUploadError(err.message || 'Failed to upload media');
+      setSaving(false);
+      setUploading(false);
+      return;
+    } finally {
+      setUploading(false);
     }
 
     const manualUrls = parseCommaList(manualImageUrls);
     nextImageUrls = [...nextImageUrls, ...manualUrls].slice(0, MAX_PRODUCT_IMAGES);
+
+    const legacyFields = addVariations
+      ? deriveLegacyFieldsFromVariations(variationGroups)
+      : {
+          ringSizes: showRingSizes ? parseCommaList(form.ringSizes) : [],
+          metalColors: parseCommaList(form.metalColors),
+        };
 
     const payload = {
       title: form.title.trim(),
       shortDescription: form.shortDescription.trim() || undefined,
       description: form.description.trim() || undefined,
       category: form.category,
+      brand: form.brand.trim() || undefined,
       images: nextImageUrls,
+      video: nextVideoUrl || undefined,
       price: Number(form.price),
       oldPrice: form.oldPrice !== '' ? Number(form.oldPrice) : undefined,
       sku: form.sku.trim(),
       stock: Number(form.stock) || 0,
-      ringSizes: showRingSizes ? parseCommaList(form.ringSizes) : [],
-      metalColors: parseCommaList(form.metalColors),
+      ringSizes: legacyFields.ringSizes,
+      metalColors: legacyFields.metalColors,
       material: form.material.trim() || undefined,
       tags: parseCommaList(form.tags),
       isFeatured: form.isFeatured,
@@ -259,6 +465,28 @@ export default function ProductForm() {
         ? form.customizationOptions
         : getDefaultCustomizationOptions(),
       status: form.status,
+      variationGroups: addVariations
+        ? variationGroups
+            .filter((group) => group.name.trim())
+            .map((group) => ({
+              name: group.name.trim(),
+              options: group.options.map((option) => option.trim()).filter(Boolean),
+            }))
+            .filter((group) => group.options.length > 0)
+        : [],
+      variants: addVariations
+        ? variants.map((variant) => ({
+            attributes: variant.attributes,
+            stock: Number(variant.stock) || 0,
+            price: variant.price !== '' && variant.price != null ? Number(variant.price) : undefined,
+            sku: variant.sku?.trim() || undefined,
+            image: variant.image?.trim() || undefined,
+          }))
+        : [],
+      sizeChart: {
+        enabled: sizeChartEnabled && Boolean(nextSizeChartUrl),
+        imageUrl: sizeChartEnabled ? nextSizeChartUrl : '',
+      },
     };
 
     if (form.slug.trim()) {
@@ -290,421 +518,713 @@ export default function ProductForm() {
 
   return (
     <AdminLayout title={isEditing ? 'Edit Product' : 'Add Product'} label="Catalog">
-      <div className="products-page">
+      <div className="products-page product-form-page">
         {error && <div className="alert-banner alert-error">{error}</div>}
+        {uploadError && <div className="alert-banner alert-error">{uploadError}</div>}
 
-        <form className="admin-form-card admin-form-card-wide" onSubmit={handleSubmit}>
-          <div className="admin-form-grid">
-            <div className="admin-form-field">
-              <label htmlFor="title">Title *</label>
-              <input
-                id="title"
-                name="title"
-                type="text"
-                value={form.title}
-                onChange={handleChange}
-                required
-                disabled={saving || uploading}
-              />
+        <form className="product-seller-form" onSubmit={handleSubmit}>
+          <div className="product-form-toolbar">
+            <div>
+              <p className="product-form-toolbar-label">{isEditing ? 'Edit product' : 'New product'}</p>
+              <h2 className="product-form-toolbar-title">{form.title || 'Untitled product'}</h2>
             </div>
-
-            <div className="admin-form-field">
-              <label htmlFor="slug">Slug</label>
-              <input
-                id="slug"
-                name="slug"
-                type="text"
-                value={form.slug}
-                onChange={handleChange}
-                disabled={saving || uploading}
-                placeholder="Auto-generated from title if empty"
-              />
-            </div>
-
-            <div className="admin-form-field admin-form-field-full">
-              <label htmlFor="shortDescription">Short Description</label>
-              <input
-                id="shortDescription"
-                name="shortDescription"
-                type="text"
-                value={form.shortDescription}
-                onChange={handleChange}
-                disabled={saving || uploading}
-              />
-            </div>
-
-            <div className="admin-form-field admin-form-field-full">
-              <label htmlFor="description">Description</label>
-              <textarea
-                id="description"
-                name="description"
-                value={form.description}
-                onChange={handleChange}
-                disabled={saving || uploading}
-              />
-            </div>
-
-            <div className="admin-form-field">
-              <label htmlFor="category">Category *</label>
-              <select
-                id="category"
-                name="category"
-                value={form.category}
-                onChange={handleChange}
-                required
+            <div className="product-form-toolbar-actions">
+              <Link to="/products" className="btn-secondary">
+                Cancel
+              </Link>
+              <button
+                type="submit"
+                className="btn-primary"
                 disabled={saving || uploading || categories.length === 0}
               >
-                <option value="">Select category</option>
-                {categories.map((category) => (
-                  <option key={category._id} value={category._id}>
-                    {category.name}
-                  </option>
-                ))}
-              </select>
-              {categories.length === 0 && (
-                <span className="field-hint">Create a category first before adding products.</span>
-              )}
+                {uploading ? 'Uploading media...' : saving ? 'Saving...' : isEditing ? 'Update' : 'Create Product'}
+              </button>
             </div>
-
-            <div className="admin-form-field">
-              <label htmlFor="status">Status</label>
-              <select
-                id="status"
-                name="status"
-                value={form.status}
-                onChange={handleChange}
-                disabled={saving || uploading}
-              >
-                <option value="draft">Draft</option>
-                <option value="active">Active</option>
-                <option value="inactive">Inactive</option>
-              </select>
-            </div>
-
-            <div className="admin-form-field admin-form-field-full image-upload-field">
-              <div className="image-upload-header">
-                <label htmlFor="productImages">Product Images</label>
-                <span className="image-upload-count">
-                  {totalSelectedImages} / {MAX_PRODUCT_IMAGES} selected
-                </span>
-              </div>
-
-              <input
-                ref={imageInputRef}
-                id="productImages"
-                type="file"
-                accept=".jpg,.jpeg,.png,.webp,image/jpeg,image/png,image/webp"
-                multiple
-                className="image-upload-input-hidden"
-                onChange={handleImageFilesChange}
-                disabled={saving || uploading || totalSelectedImages >= MAX_PRODUCT_IMAGES}
-              />
-
-              <div
-                className={`image-upload-dropzone ${remainingImageSlots <= 0 ? 'image-upload-dropzone-full' : ''}`}
-                onClick={() => {
-                  if (remainingImageSlots > 0 && !saving && !uploading) {
-                    imageInputRef.current?.click();
-                  }
-                }}
-                onDragOver={(event) => {
-                  event.preventDefault();
-                  event.currentTarget.classList.add('image-upload-dropzone-active');
-                }}
-                onDragLeave={(event) => {
-                  event.currentTarget.classList.remove('image-upload-dropzone-active');
-                }}
-                onDrop={(event) => {
-                  event.preventDefault();
-                  event.currentTarget.classList.remove('image-upload-dropzone-active');
-
-                  if (remainingImageSlots <= 0 || saving || uploading) {
-                    return;
-                  }
-
-                  const files = Array.from(event.dataTransfer.files || []).filter((file) =>
-                    file.type.startsWith('image/')
-                  );
-
-                  if (!files.length) {
-                    return;
-                  }
-
-                  handleImageFilesChange({ target: { files, value: '' } });
-                }}
-                role="button"
-                tabIndex={0}
-                onKeyDown={(event) => {
-                  if (event.key === 'Enter' || event.key === ' ') {
-                    event.preventDefault();
-                    imageInputRef.current?.click();
-                  }
-                }}
-              >
-                <p className="image-upload-dropzone-title">
-                  {remainingImageSlots > 0
-                    ? 'Drag and drop images here, or click to browse'
-                    : 'Maximum image limit reached'}
-                </p>
-                <p className="image-upload-dropzone-hint">
-                  JPG, JPEG, PNG, WEBP up to 5MB each. You can select multiple files at once.
-                </p>
-                {remainingImageSlots > 0 && (
-                  <button
-                    type="button"
-                    className="btn-secondary image-upload-browse-btn"
-                    onClick={(event) => {
-                      event.stopPropagation();
-                      imageInputRef.current?.click();
-                    }}
-                    disabled={saving || uploading}
-                  >
-                    Add Images
-                  </button>
-                )}
-              </div>
-
-              <span className="field-hint">Images upload when you save the product.</span>
-              {uploadError && <p className="upload-error">{uploadError}</p>}
-              {uploading && <p className="upload-status">Uploading images...</p>}
-
-              {(imageUrls.length > 0 || pendingFiles.length > 0) && (
-                <div className="image-preview-grid">
-                  {imageUrls.map((url, index) => (
-                    <div key={`${url}-${index}`} className="image-preview-card">
-                      <img src={url} alt={`Product ${index + 1}`} className="image-preview" />
-                      <span className="image-preview-badge">Uploaded</span>
-                      <button
-                        type="button"
-                        className="btn-text btn-text-danger"
-                        onClick={() => handleRemoveUploadedImage(index)}
-                        disabled={saving || uploading}
-                      >
-                        Remove
-                      </button>
-                    </div>
-                  ))}
-
-                  {pendingFiles.map((item, index) => (
-                    <div key={item.key} className="image-preview-card image-preview-pending">
-                      <img src={item.previewUrl} alt={item.file.name} className="image-preview" />
-                      <span className="image-preview-label">Pending upload</span>
-                      <button
-                        type="button"
-                        className="btn-text btn-text-danger"
-                        onClick={() => handleRemovePendingFile(index)}
-                        disabled={saving || uploading}
-                      >
-                        Remove
-                      </button>
-                    </div>
-                  ))}
-                </div>
-              )}
-            </div>
-
-            <div className="admin-form-field admin-form-field-full">
-              <label htmlFor="manualImageUrls">Image URLs (optional fallback)</label>
-              <input
-                id="manualImageUrls"
-                name="manualImageUrls"
-                type="text"
-                value={manualImageUrls}
-                onChange={(event) => {
-                  setManualImageUrls(event.target.value);
-                  setUploadError('');
-                }}
-                disabled={saving || uploading}
-                placeholder="Comma-separated image URLs"
-              />
-              <span className="field-hint">
-                Example: https://example.com/a.jpg, https://example.com/b.jpg
-              </span>
-            </div>
-
-            <div className="admin-form-field">
-              <label htmlFor="price">Price *</label>
-              <input
-                id="price"
-                name="price"
-                type="number"
-                min="0"
-                step="0.01"
-                value={form.price}
-                onChange={handleChange}
-                required
-                disabled={saving || uploading}
-              />
-            </div>
-
-            <div className="admin-form-field">
-              <label htmlFor="oldPrice">Old Price</label>
-              <input
-                id="oldPrice"
-                name="oldPrice"
-                type="number"
-                min="0"
-                step="0.01"
-                value={form.oldPrice}
-                onChange={handleChange}
-                disabled={saving || uploading}
-              />
-            </div>
-
-            <div className="admin-form-field">
-              <label htmlFor="sku">SKU *</label>
-              <input
-                id="sku"
-                name="sku"
-                type="text"
-                value={form.sku}
-                onChange={handleChange}
-                required
-                disabled={saving || uploading}
-              />
-            </div>
-
-            <div className="admin-form-field">
-              <label htmlFor="stock">Stock</label>
-              <input
-                id="stock"
-                name="stock"
-                type="number"
-                min="0"
-                value={form.stock}
-                onChange={handleChange}
-                disabled={saving || uploading}
-              />
-            </div>
-
-            {showRingSizes && (
-              <div className="admin-form-field">
-                <label htmlFor="ringSizes">Ring Sizes</label>
-                <input
-                  id="ringSizes"
-                  name="ringSizes"
-                  type="text"
-                  value={form.ringSizes}
-                  onChange={handleChange}
-                  disabled={saving || uploading}
-                  placeholder="6, 7, 8"
-                />
-                <span className="field-hint">Only shown for ring categories.</span>
-              </div>
-            )}
-
-            <div className="admin-form-field">
-              <label htmlFor="metalColors">Metal Colors</label>
-              <input
-                id="metalColors"
-                name="metalColors"
-                type="text"
-                value={form.metalColors}
-                onChange={handleChange}
-                disabled={saving || uploading}
-                placeholder="gold, rose-gold, silver"
-              />
-            </div>
-
-            <div className="admin-form-field">
-              <label htmlFor="material">Material</label>
-              <input
-                id="material"
-                name="material"
-                type="text"
-                value={form.material}
-                onChange={handleChange}
-                disabled={saving || uploading}
-                placeholder="18K Gold"
-              />
-            </div>
-
-            <div className="admin-form-field">
-              <label htmlFor="tags">Tags</label>
-              <input
-                id="tags"
-                name="tags"
-                type="text"
-                value={form.tags}
-                onChange={handleChange}
-                disabled={saving || uploading}
-                placeholder="ring, diamond, wedding"
-              />
-            </div>
-
-            <div className="admin-form-field admin-form-field-full product-checkbox-group">
-              <label className="admin-form-checkbox">
-                <input
-                  type="checkbox"
-                  name="isFeatured"
-                  checked={form.isFeatured}
-                  onChange={handleChange}
-                  disabled={saving || uploading}
-                />
-                Is Featured
-              </label>
-              <label className="admin-form-checkbox">
-                <input
-                  type="checkbox"
-                  name="isTrending"
-                  checked={form.isTrending}
-                  onChange={handleChange}
-                  disabled={saving || uploading}
-                />
-                Is Trending
-              </label>
-              <label className="admin-form-checkbox">
-                <input
-                  type="checkbox"
-                  name="isNewArrival"
-                  checked={form.isNewArrival}
-                  onChange={handleChange}
-                  disabled={saving || uploading}
-                />
-                Is New Arrival
-              </label>
-              <label className="admin-form-checkbox">
-                <input
-                  type="checkbox"
-                  name="isCustomizable"
-                  checked={form.isCustomizable}
-                  onChange={handleChange}
-                  disabled={saving || uploading}
-                />
-                Customizable Product
-              </label>
-            </div>
-
-            {form.isCustomizable && (
-              <div className="admin-form-field admin-form-field-full">
-                <CustomizationOptionsSection
-                  options={form.customizationOptions}
-                  onChange={(nextOptions) =>
-                    setForm((prev) => ({ ...prev, customizationOptions: nextOptions }))
-                  }
-                  disabled={saving || uploading}
-                />
-              </div>
-            )}
           </div>
 
-          <div className="admin-form-actions">
-            <button
-              type="submit"
-              className="btn-primary"
-              disabled={saving || uploading || categories.length === 0}
-            >
-              {uploading
-                ? 'Uploading images...'
-                : saving
-                  ? 'Saving...'
-                  : isEditing
-                    ? 'Update Product'
-                    : 'Create Product'}
-            </button>
-            <Link to="/products" className="btn-secondary">
-              Cancel
-            </Link>
+          <div className="product-form-layout">
+            <aside className="product-form-preview">
+              <div className="product-form-section">
+                <h3 className="product-form-section-title">Preview</h3>
+                <div className="product-preview-card">
+                  {previewImage ? (
+                    <img src={previewImage} alt="Product preview" className="product-preview-image" />
+                  ) : (
+                    <div className="product-preview-placeholder">Main image preview</div>
+                  )}
+                  <p className="product-preview-name">{form.title || 'Product name'}</p>
+                  <p className="product-preview-price">
+                    {form.price !== '' ? `Rs ${Number(form.price).toLocaleString()}` : 'Rs 0'}
+                  </p>
+                  {addVariations && variationGroups[0]?.options?.length > 0 && (
+                    <div className="product-preview-variations">
+                      <span className="product-preview-variation-label">
+                        {variationGroups[0].name || 'Variation'}
+                      </span>
+                      <div className="product-preview-variation-options">
+                        {variationGroups[0].options.filter(Boolean).slice(0, 4).map((option) => (
+                          <span key={option} className="product-preview-chip">
+                            {option}
+                          </span>
+                        ))}
+                      </div>
+                    </div>
+                  )}
+                </div>
+              </div>
+            </aside>
+
+            <div className="product-form-main">
+              <section className="product-form-section">
+                <h3 className="product-form-section-title">Product Media</h3>
+                <p className="product-form-section-hint">
+                  Upload up to {MAX_PRODUCT_IMAGES} images and one optional product video.
+                </p>
+
+                <input
+                  ref={imageInputRef}
+                  id="productImages"
+                  type="file"
+                  accept=".jpg,.jpeg,.png,.webp,image/jpeg,image/png,image/webp"
+                  multiple
+                  className="image-upload-input-hidden"
+                  onChange={handleImageFilesChange}
+                  disabled={saving || uploading || totalSelectedImages >= MAX_PRODUCT_IMAGES}
+                />
+                <input
+                  ref={videoInputRef}
+                  type="file"
+                  accept=".mp4,.webm,.mov,video/mp4,video/webm,video/quicktime"
+                  className="image-upload-input-hidden"
+                  onChange={handleVideoChange}
+                  disabled={saving || uploading}
+                />
+
+                <div className="product-media-grid">
+                  <button
+                    type="button"
+                    className={`product-media-slot product-media-slot-main ${previewImage ? 'product-media-slot-filled' : ''}`}
+                    onClick={() => imageInputRef.current?.click()}
+                    disabled={remainingImageSlots <= 0 || saving || uploading}
+                  >
+                    {previewImage ? (
+                      <img src={previewImage} alt="Main" />
+                    ) : (
+                      <>
+                        <span className="product-media-slot-label">Main Image</span>
+                        <span className="product-media-slot-action">Upload</span>
+                      </>
+                    )}
+                  </button>
+
+                  {Array.from({ length: Math.min(remainingImageSlots > 0 ? 3 : 0, 3) }).map((_, index) => (
+                    <button
+                      key={`empty-slot-${index}`}
+                      type="button"
+                      className="product-media-slot"
+                      onClick={() => imageInputRef.current?.click()}
+                      disabled={saving || uploading}
+                    >
+                      <span className="product-media-slot-action">Upload image</span>
+                    </button>
+                  ))}
+
+                  <button
+                    type="button"
+                    className={`product-media-slot product-media-slot-video ${videoUrl || pendingVideoFile ? 'product-media-slot-filled' : ''}`}
+                    onClick={() => videoInputRef.current?.click()}
+                    disabled={saving || uploading}
+                  >
+                    {pendingVideoFile?.previewUrl ? (
+                      <video src={pendingVideoFile.previewUrl} muted playsInline />
+                    ) : videoUrl ? (
+                      <video src={videoUrl} muted playsInline />
+                    ) : (
+                      <>
+                        <span className="product-media-slot-label">Video</span>
+                        <span className="product-media-slot-action">Upload</span>
+                      </>
+                    )}
+                  </button>
+                </div>
+
+                <div className="image-upload-header">
+                  <span className="image-upload-count">
+                    {totalSelectedImages} / {MAX_PRODUCT_IMAGES} images selected
+                  </span>
+                  {remainingImageSlots > 0 && (
+                    <button
+                      type="button"
+                      className="btn-secondary image-upload-browse-btn"
+                      onClick={() => imageInputRef.current?.click()}
+                      disabled={saving || uploading}
+                    >
+                      Add Images
+                    </button>
+                  )}
+                </div>
+
+                {(imageUrls.length > 0 || pendingFiles.length > 0) && (
+                  <div className="image-preview-grid">
+                    {imageUrls.map((url, index) => (
+                      <div key={`${url}-${index}`} className="image-preview-card">
+                        <img src={url} alt={`Product ${index + 1}`} className="image-preview" />
+                        <span className="image-preview-badge">Uploaded</span>
+                        <button
+                          type="button"
+                          className="btn-text btn-text-danger"
+                          onClick={() => handleRemoveUploadedImage(index)}
+                          disabled={saving || uploading}
+                        >
+                          Remove
+                        </button>
+                      </div>
+                    ))}
+                    {pendingFiles.map((item, index) => (
+                      <div key={item.key} className="image-preview-card image-preview-pending">
+                        <img src={item.previewUrl} alt={item.file.name} className="image-preview" />
+                        <span className="image-preview-label">Pending upload</span>
+                        <button
+                          type="button"
+                          className="btn-text btn-text-danger"
+                          onClick={() => handleRemovePendingFile(index)}
+                          disabled={saving || uploading}
+                        >
+                          Remove
+                        </button>
+                      </div>
+                    ))}
+                  </div>
+                )}
+
+                <div className="admin-form-field admin-form-field-full">
+                  <label htmlFor="manualImageUrls">Image URLs (optional fallback)</label>
+                  <input
+                    id="manualImageUrls"
+                    name="manualImageUrls"
+                    type="text"
+                    value={manualImageUrls}
+                    onChange={(event) => {
+                      setManualImageUrls(event.target.value);
+                      setUploadError('');
+                    }}
+                    disabled={saving || uploading}
+                    placeholder="Comma-separated image URLs"
+                  />
+                </div>
+              </section>
+
+              <section className="product-form-section">
+                <h3 className="product-form-section-title">Product Information</h3>
+                <div className="admin-form-grid">
+                  <div className="admin-form-field admin-form-field-full">
+                    <label htmlFor="title">Product Name *</label>
+                    <input
+                      id="title"
+                      name="title"
+                      type="text"
+                      value={form.title}
+                      onChange={handleChange}
+                      required
+                      disabled={saving || uploading}
+                    />
+                  </div>
+
+                  <div className="admin-form-field">
+                    <label htmlFor="category">Category *</label>
+                    <select
+                      id="category"
+                      name="category"
+                      value={form.category}
+                      onChange={handleChange}
+                      required
+                      disabled={saving || uploading || categories.length === 0}
+                    >
+                      <option value="">Select category</option>
+                      {categories.map((category) => (
+                        <option key={category._id} value={category._id}>
+                          {category.name}
+                        </option>
+                      ))}
+                    </select>
+                  </div>
+
+                  <div className="admin-form-field">
+                    <label htmlFor="brand">Brand</label>
+                    <input
+                      id="brand"
+                      name="brand"
+                      type="text"
+                      value={form.brand}
+                      onChange={handleChange}
+                      disabled={saving || uploading}
+                      placeholder="No brand"
+                    />
+                  </div>
+
+                  <div className="admin-form-field">
+                    <label htmlFor="slug">Slug</label>
+                    <input
+                      id="slug"
+                      name="slug"
+                      type="text"
+                      value={form.slug}
+                      onChange={handleChange}
+                      disabled={saving || uploading}
+                      placeholder="Auto-generated from title if empty"
+                    />
+                  </div>
+
+                  <div className="admin-form-field">
+                    <label htmlFor="status">Status</label>
+                    <select
+                      id="status"
+                      name="status"
+                      value={form.status}
+                      onChange={handleChange}
+                      disabled={saving || uploading}
+                    >
+                      <option value="draft">Draft</option>
+                      <option value="active">Active</option>
+                      <option value="inactive">Inactive</option>
+                    </select>
+                  </div>
+
+                  <div className="admin-form-field admin-form-field-full">
+                    <label htmlFor="shortDescription">Short Description</label>
+                    <input
+                      id="shortDescription"
+                      name="shortDescription"
+                      type="text"
+                      value={form.shortDescription}
+                      onChange={handleChange}
+                      disabled={saving || uploading}
+                    />
+                  </div>
+
+                  <div className="admin-form-field admin-form-field-full">
+                    <label htmlFor="description">Product Description</label>
+                    <textarea
+                      id="description"
+                      name="description"
+                      value={form.description}
+                      onChange={handleChange}
+                      disabled={saving || uploading}
+                      rows={6}
+                    />
+                  </div>
+
+                  <div className="admin-form-field">
+                    <label htmlFor="material">Material</label>
+                    <input
+                      id="material"
+                      name="material"
+                      type="text"
+                      value={form.material}
+                      onChange={handleChange}
+                      disabled={saving || uploading}
+                      placeholder="18K Gold"
+                    />
+                  </div>
+
+                  <div className="admin-form-field">
+                    <label htmlFor="tags">Tags</label>
+                    <input
+                      id="tags"
+                      name="tags"
+                      type="text"
+                      value={form.tags}
+                      onChange={handleChange}
+                      disabled={saving || uploading}
+                      placeholder="ring, diamond, wedding"
+                    />
+                  </div>
+                </div>
+              </section>
+
+              <section className="product-form-section">
+                <h3 className="product-form-section-title">Sales Information</h3>
+                <div className="admin-form-grid">
+                  <div className="admin-form-field">
+                    <label htmlFor="price">Retail Price *</label>
+                    <input
+                      id="price"
+                      name="price"
+                      type="number"
+                      min="0"
+                      step="0.01"
+                      value={form.price}
+                      onChange={handleChange}
+                      required
+                      disabled={saving || uploading}
+                    />
+                  </div>
+
+                  <div className="admin-form-field">
+                    <label htmlFor="oldPrice">Compare-at Price</label>
+                    <input
+                      id="oldPrice"
+                      name="oldPrice"
+                      type="number"
+                      min="0"
+                      step="0.01"
+                      value={form.oldPrice}
+                      onChange={handleChange}
+                      disabled={saving || uploading}
+                    />
+                  </div>
+
+                  <div className="admin-form-field">
+                    <label htmlFor="sku">Seller SKU *</label>
+                    <input
+                      id="sku"
+                      name="sku"
+                      type="text"
+                      value={form.sku}
+                      onChange={handleChange}
+                      required
+                      disabled={saving || uploading}
+                    />
+                  </div>
+
+                  <div className="admin-form-field">
+                    <label htmlFor="stock">Stock</label>
+                    <input
+                      id="stock"
+                      name="stock"
+                      type="number"
+                      min="0"
+                      value={form.stock}
+                      onChange={handleChange}
+                      disabled={saving || uploading}
+                    />
+                  </div>
+                </div>
+
+                <div className="product-checkbox-group">
+                  <label className="admin-form-checkbox">
+                    <input
+                      type="checkbox"
+                      name="isFeatured"
+                      checked={form.isFeatured}
+                      onChange={handleChange}
+                      disabled={saving || uploading}
+                    />
+                    Featured (Bundles)
+                  </label>
+                  <label className="admin-form-checkbox">
+                    <input
+                      type="checkbox"
+                      name="isTrending"
+                      checked={form.isTrending}
+                      onChange={handleChange}
+                      disabled={saving || uploading}
+                    />
+                    Trending
+                  </label>
+                  <label className="admin-form-checkbox">
+                    <input
+                      type="checkbox"
+                      name="isNewArrival"
+                      checked={form.isNewArrival}
+                      onChange={handleChange}
+                      disabled={saving || uploading}
+                    />
+                    New Arrival
+                  </label>
+                  <label className="admin-form-checkbox">
+                    <input
+                      type="checkbox"
+                      name="isCustomizable"
+                      checked={form.isCustomizable}
+                      onChange={handleChange}
+                      disabled={saving || uploading}
+                    />
+                    Customizable Product
+                  </label>
+                </div>
+              </section>
+
+              <section className="product-form-section">
+                <div className="product-form-section-header">
+                  <div>
+                    <h3 className="product-form-section-title">Variations</h3>
+                    <p className="product-form-section-hint">
+                      Add color, ring size, or other variation groups and manage stock per combination.
+                    </p>
+                  </div>
+                  <label className="product-toggle">
+                    <input
+                      type="checkbox"
+                      checked={addVariations}
+                      onChange={(event) => {
+                        const enabled = event.target.checked;
+                        setAddVariations(enabled);
+                        if (enabled) {
+                          setVariants((currentVariants) =>
+                            buildSyncedVariants(variationGroups, currentVariants)
+                          );
+                        }
+                      }}
+                      disabled={saving || uploading}
+                    />
+                    <span>Add variations</span>
+                  </label>
+                </div>
+
+                {addVariations ? (
+                  <>
+                    {variationGroups.map((group, groupIndex) => (
+                      <div key={`variation-group-${groupIndex}`} className="variation-group-card">
+                        <div className="variation-group-header">
+                          <div className="admin-form-field">
+                            <label>Variation Name</label>
+                            <input
+                              type="text"
+                              value={group.name}
+                              onChange={(event) => updateVariationGroupName(groupIndex, event.target.value)}
+                              placeholder="Color, Ring Size..."
+                              disabled={saving || uploading}
+                            />
+                          </div>
+                          {variationGroups.length > 1 && (
+                            <button
+                              type="button"
+                              className="btn-text btn-text-danger"
+                              onClick={() => removeVariationGroup(groupIndex)}
+                              disabled={saving || uploading}
+                            >
+                              Remove group
+                            </button>
+                          )}
+                        </div>
+
+                        <div className="variation-options-list">
+                          {group.options.map((option, optionIndex) => (
+                            <div key={`option-${groupIndex}-${optionIndex}`} className="variation-option-row">
+                              <input
+                                type="text"
+                                value={option}
+                                onChange={(event) =>
+                                  updateVariationOption(groupIndex, optionIndex, event.target.value)
+                                }
+                                placeholder="Option value"
+                                disabled={saving || uploading}
+                              />
+                              <button
+                                type="button"
+                                className="btn-text btn-text-danger"
+                                onClick={() => removeVariationOption(groupIndex, optionIndex)}
+                                disabled={saving || uploading}
+                              >
+                                Delete
+                              </button>
+                            </div>
+                          ))}
+                          <button
+                            type="button"
+                            className="btn-text"
+                            onClick={() => addVariationOption(groupIndex)}
+                            disabled={saving || uploading}
+                          >
+                            + Add option
+                          </button>
+                        </div>
+                      </div>
+                    ))}
+
+                    <button
+                      type="button"
+                      className="btn-secondary variation-add-group-btn"
+                      onClick={addVariationGroup}
+                      disabled={saving || uploading}
+                    >
+                      + Add variation
+                    </button>
+
+                    {variants.length > 0 && (
+                      <div className="variation-table-wrap">
+                        <div className="variation-batch-row">
+                          <input
+                            type="number"
+                            min="0"
+                            placeholder="Batch stock"
+                            value={batchStock}
+                            onChange={(event) => setBatchStock(event.target.value)}
+                            disabled={saving || uploading}
+                          />
+                          <input
+                            type="number"
+                            min="0"
+                            step="0.01"
+                            placeholder="Batch price"
+                            value={batchPrice}
+                            onChange={(event) => setBatchPrice(event.target.value)}
+                            disabled={saving || uploading}
+                          />
+                          <button
+                            type="button"
+                            className="btn-secondary"
+                            onClick={applyBatchVariantValues}
+                            disabled={saving || uploading}
+                          >
+                            Apply
+                          </button>
+                        </div>
+
+                        <table className="variation-table">
+                          <thead>
+                            <tr>
+                              {variationGroups.map((group) => (
+                                <th key={group.name}>{group.name || 'Variation'}</th>
+                              ))}
+                              <th>Stock</th>
+                              <th>Retail Price</th>
+                              <th>Seller SKU</th>
+                            </tr>
+                          </thead>
+                          <tbody>
+                            {variants.map((variant, index) => (
+                              <tr key={JSON.stringify(variant.attributes)}>
+                                {variationGroups.map((group) => (
+                                  <td key={`${group.name}-${index}`}>
+                                    {variant.attributes?.[group.name] || '—'}
+                                  </td>
+                                ))}
+                                <td>
+                                  <input
+                                    type="number"
+                                    min="0"
+                                    value={variant.stock}
+                                    onChange={(event) =>
+                                      updateVariantField(index, 'stock', event.target.value)
+                                    }
+                                    disabled={saving || uploading}
+                                  />
+                                </td>
+                                <td>
+                                  <input
+                                    type="number"
+                                    min="0"
+                                    step="0.01"
+                                    value={variant.price}
+                                    onChange={(event) =>
+                                      updateVariantField(index, 'price', event.target.value)
+                                    }
+                                    disabled={saving || uploading}
+                                  />
+                                </td>
+                                <td>
+                                  <input
+                                    type="text"
+                                    value={variant.sku || ''}
+                                    onChange={(event) =>
+                                      updateVariantField(index, 'sku', event.target.value)
+                                    }
+                                    disabled={saving || uploading}
+                                  />
+                                </td>
+                              </tr>
+                            ))}
+                          </tbody>
+                        </table>
+                      </div>
+                    )}
+                  </>
+                ) : (
+                  <div className="admin-form-grid">
+                    {showRingSizes && (
+                      <div className="admin-form-field">
+                        <label htmlFor="ringSizes">Ring Sizes</label>
+                        <input
+                          id="ringSizes"
+                          name="ringSizes"
+                          type="text"
+                          value={form.ringSizes}
+                          onChange={handleChange}
+                          disabled={saving || uploading}
+                          placeholder="6, 7, 8"
+                        />
+                      </div>
+                    )}
+                    <div className="admin-form-field">
+                      <label htmlFor="metalColors">Metal Colors</label>
+                      <input
+                        id="metalColors"
+                        name="metalColors"
+                        type="text"
+                        value={form.metalColors}
+                        onChange={handleChange}
+                        disabled={saving || uploading}
+                        placeholder="gold, rose-gold, silver"
+                      />
+                    </div>
+                  </div>
+                )}
+              </section>
+
+              <section className="product-form-section">
+                <div className="product-form-section-header">
+                  <div>
+                    <h3 className="product-form-section-title">Size Chart</h3>
+                    <p className="product-form-section-hint">
+                      Upload a size chart image to display on the product page.
+                    </p>
+                  </div>
+                  <label className="product-toggle">
+                    <input
+                      type="checkbox"
+                      checked={sizeChartEnabled}
+                      onChange={(event) => setSizeChartEnabled(event.target.checked)}
+                      disabled={saving || uploading}
+                    />
+                    <span>Enable size chart</span>
+                  </label>
+                </div>
+
+                {sizeChartEnabled && (
+                  <>
+                    <input
+                      ref={sizeChartInputRef}
+                      type="file"
+                      accept=".jpg,.jpeg,.png,.webp,image/jpeg,image/png,image/webp"
+                      className="image-upload-input-hidden"
+                      onChange={handleSizeChartChange}
+                      disabled={saving || uploading}
+                    />
+                    <div className="size-chart-upload-row">
+                      <button
+                        type="button"
+                        className="btn-secondary"
+                        onClick={() => sizeChartInputRef.current?.click()}
+                        disabled={saving || uploading}
+                      >
+                        Upload size chart image
+                      </button>
+                      {(sizeChartUrl || pendingSizeChartFile?.previewUrl) && (
+                        <img
+                          src={pendingSizeChartFile?.previewUrl || sizeChartUrl}
+                          alt="Size chart preview"
+                          className="size-chart-preview"
+                        />
+                      )}
+                    </div>
+                  </>
+                )}
+              </section>
+
+              {form.isCustomizable && (
+                <section className="product-form-section">
+                  <CustomizationOptionsSection
+                    options={form.customizationOptions}
+                    onChange={(nextOptions) =>
+                      setForm((prev) => ({ ...prev, customizationOptions: nextOptions }))
+                    }
+                    disabled={saving || uploading}
+                  />
+                </section>
+              )}
+            </div>
           </div>
         </form>
       </div>
