@@ -15,7 +15,8 @@ import {
 import './Products.css';
 
 const MAX_PRODUCT_IMAGES = 8;
-const UPLOAD_CHUNK_SIZE = 3;
+const UPLOAD_CHUNK_SIZE = 1;
+const MAX_IMAGE_BYTES = 4 * 1024 * 1024;
 
 const createDefaultForm = () => ({
   title: '',
@@ -225,6 +226,15 @@ export default function ProductForm() {
   const handleImageFilesChange = (event) => {
     const files = Array.from(event.target.files || []);
     if (!files.length) return;
+
+    const oversized = files.find((file) => file.size > MAX_IMAGE_BYTES);
+    if (oversized) {
+      setUploadError(
+        `"${oversized.name}" is too large. Each image must be 4MB or less for reliable upload.`
+      );
+      event.target.value = '';
+      return;
+    }
 
     const availableSlots = MAX_PRODUCT_IMAGES - imageUrls.length - pendingFiles.length;
 

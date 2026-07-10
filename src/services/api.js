@@ -1,4 +1,6 @@
-const API_BASE_URL = import.meta.env.VITE_API_URL || 'https://zivorabackend.vercel.app/api/v1';
+import { resolveApiBaseUrl } from '../utils/apiBaseUrl.js';
+
+const API_BASE_URL = resolveApiBaseUrl();
 
 const TOKEN_KEY = 'zivora_admin_token';
 
@@ -25,6 +27,24 @@ const buildQueryString = (params = {}) => {
   return query ? `?${query}` : '';
 };
 
+const parseApiError = (data, status) => {
+  const validationErrors = data.errors || (Array.isArray(data.data) ? data.data : null);
+
+  if (validationErrors?.length) {
+    const details = validationErrors
+      .map((item) => item.msg || item.message)
+      .filter(Boolean)
+      .join(', ');
+    return details || data.message || `Request failed (${status})`;
+  }
+
+  if (data.errorMessage) {
+    return data.errorMessage;
+  }
+
+  return data.message || `Request failed (${status})`;
+};
+
 async function request(endpoint, options = {}) {
   const token = getStoredToken();
   const headers = {
@@ -39,23 +59,28 @@ async function request(endpoint, options = {}) {
     headers.Authorization = `Bearer ${token}`;
   }
 
+  const url = `${API_BASE_URL}${endpoint}`;
   let response;
 
   try {
-    response = await fetch(`${API_BASE_URL}${endpoint}`, {
+    response = await fetch(url, {
       ...options,
       headers,
     });
   } catch (networkError) {
-    const message =
+    const hint =
       networkError?.message?.includes('Failed to fetch') ||
       networkError?.name === 'TypeError'
-        ? 'Network error: unable to reach the server. Check your connection, API URL, and file sizes.'
+        ? 'Could not reach the API server.'
         : networkError.message || 'Network request failed';
-    throw new Error(message, { cause: networkError });
+
+    throw new Error(`${hint} [${options.method || 'GET'} ${url}]`, { cause: networkError });
   }
 
-  const data = await response.json().catch(() => ({}));
+  const contentType = response.headers.get('content-type') || '';
+  const data = contentType.includes('application/json')
+    ? await response.json().catch(() => ({}))
+    : {};
 
   if (response.status === 401) {
     setStoredToken(null);
@@ -65,10 +90,7 @@ async function request(endpoint, options = {}) {
   }
 
   if (!response.ok) {
-    const details = data.errors?.length
-      ? `: ${data.errors.map((item) => item.msg || item.message).filter(Boolean).join(', ')}`
-      : '';
-    throw new Error((data.message || 'Something went wrong') + details);
+    throw new Error(parseApiError(data, response.status));
   }
 
   return data;
@@ -230,23 +252,23 @@ export const newsletterApi = {
 };
 
 export const uploadApi = {
-  uploadProductImages: async (files, { chunkSize = 3 } = {}) => {
+  uploadProductImages: async (files, { chunkSize = 1 } = {}) => {
     const uploadedUrls = [];
 
     for (let index = 0; index < files.length; index += chunkSize) {
       const chunk = files.slice(index, index + chunkSize);
-      const formData = new FormData();
 
-      chunk.forEach((file) => {
+      for (const file of chunk) {
+        const formData = new FormData();
         formData.append('images', file);
-      });
 
-      const response = await request('/uploads/product-images', {
-        method: 'POST',
-        body: formData,
-      });
+        const response = await request('/uploads/product-images', {
+          method: 'POST',
+          body: formData,
+        });
 
-      uploadedUrls.push(...(response.data?.urls || []));
+        uploadedUrls.push(...(response.data?.urls || []));
+      }
     }
 
     return { data: { urls: uploadedUrls } };
@@ -282,3 +304,5 @@ export const uploadApi = {
     });
   },
 };
+
+export { API_BASE_URL };

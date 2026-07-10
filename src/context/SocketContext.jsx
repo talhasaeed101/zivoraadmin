@@ -2,13 +2,11 @@ import { createContext, useContext, useEffect, useState, useCallback } from 'rea
 import { io } from 'socket.io-client';
 import { getStoredToken } from '../services/api.js';
 import { notificationApi } from '../services/api.js';
+import { resolveApiBaseUrl } from '../utils/apiBaseUrl.js';
 
 const SocketContext = createContext(null);
 
-const SOCKET_URL = (import.meta.env.VITE_API_URL || 'http://localhost:3000/api/v1').replace(
-  /\/api\/v1\/?$/,
-  ''
-);
+const SOCKET_URL = resolveApiBaseUrl().replace(/\/api\/v1\/?$/, '');
 
 export function SocketProvider({ children }) {
   const [socket, setSocket] = useState(null);
