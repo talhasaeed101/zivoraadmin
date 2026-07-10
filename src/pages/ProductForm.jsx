@@ -14,9 +14,10 @@ import {
 } from '../utils/productVariations.js';
 import './Products.css';
 
-const MAX_PRODUCT_IMAGES = 8;
+const MIN_PRODUCT_IMAGES = 8;
+const MAX_PRODUCT_IMAGES = 12;
 const UPLOAD_CHUNK_SIZE = 1;
-const MAX_IMAGE_BYTES = 4 * 1024 * 1024;
+const MAX_IMAGE_BYTES = 4 * 1024 * 1024; // 4 MB
 
 const createDefaultForm = () => ({
   title: '',
@@ -40,6 +41,13 @@ const createDefaultForm = () => ({
   customizationOptions: getDefaultCustomizationOptions(),
   status: 'active',
 });
+
+const PendingImageStatus = {
+  IDLE: 'idle',
+  UPLOADING: 'uploading',
+  SUCCESS: 'success',
+  ERROR: 'error',
+};
 
 const parseCommaList = (value) =>
   value
@@ -76,7 +84,7 @@ export default function ProductForm() {
   const [form, setForm] = useState(createDefaultForm);
   const [categories, setCategories] = useState([]);
   const [imageUrls, setImageUrls] = useState([]);
-  const [pendingFiles, setPendingFiles] = useState([]);
+  const [pendingFiles, setPendingFiles] = useState([]); // Array of { file, key, previewUrl, status, error, url }
   const [manualImageUrls, setManualImageUrls] = useState('');
   const [videoUrl, setVideoUrl] = useState('');
   const [pendingVideoFile, setPendingVideoFile] = useState(null);
@@ -90,7 +98,7 @@ export default function ProductForm() {
   const [batchPrice, setBatchPrice] = useState('');
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
-  const [uploading, setUploading] = useState(false);
+  const [uploadProgress, setUploadProgress] = useState({ current: 0, total: 0 });
   const [error, setError] = useState('');
   const [uploadError, setUploadError] = useState('');
   const pendingFilesRef = useRef(pendingFiles);
@@ -230,7 +238,7 @@ export default function ProductForm() {
     const oversized = files.find((file) => file.size > MAX_IMAGE_BYTES);
     if (oversized) {
       setUploadError(
-        `"${oversized.name}" is too large. Each image must be 4MB or less for reliable upload.`
+        `"${oversized.name}" is too large. Each image must be ${MAX_IMAGE_BYTES / (1024 * 1024)}MB or less.`
       );
       event.target.value = '';
       return;
@@ -248,6 +256,9 @@ export default function ProductForm() {
       file,
       key: `${file.name}-${file.lastModified}-${file.size}`,
       previewUrl: URL.createObjectURL(file),
+      status: PendingImageStatus.IDLE,
+      error: null,
+      url: null,
     }));
 
     if (files.length > availableSlots) {
@@ -258,6 +269,35 @@ export default function ProductForm() {
 
     setPendingFiles((current) => [...current, ...nextFiles]);
     event.target.value = '';
+  };
+
+  const handleRetryPendingFile = async (index) => {
+    const pendingFile = pendingFiles[index];
+    if (!pendingFile) return;
+
+    setPendingFiles((current) => 
+      current.map((pf, i) => 
+        i === index ? { ...pf, status: PendingImageStatus.UPLOADING, error: null } : pf
+      )
+    );
+
+    try {
+      const response = await uploadApi.uploadProductImages([pendingFile.file]);
+      const url = response.data?.results?.[0]?.url;
+      if (url) {
+        setPendingFiles((current) => 
+          current.map((pf, i) => 
+            i === index ? { ...pf, status: PendingImageStatus.SUCCESS, url } : pf
+          )
+        );
+      }
+    } catch (error) {
+      setPendingFiles((current) => 
+        current.map((pf, i) => 
+          i === index ? { ...pf, status: PendingImageStatus.ERROR, error: error.message } : pf
+        )
+      );
+    }
   };
 
   const handleRemoveUploadedImage = (index) => {
@@ -403,107 +443,142 @@ export default function ProductForm() {
 
   const handleSubmit = async (event) => {
     event.preventDefault();
+    
+    // Check min images
+    if (totalSelectedImages < MIN_PRODUCT_IMAGES) {
+      setUploadError(`At least ${MIN_PRODUCT_IMAGES} product images are required`);
+      return;
+    }
+
     setSaving(true);
     setError('');
     setUploadError('');
 
-    let nextImageUrls = [...imageUrls];
-    let nextVideoUrl = videoUrl;
-    let nextSizeChartUrl = sizeChartUrl;
+    // Upload pending files first
+    const filesToUpload = pendingFiles.filter(pf => pf.status !== PendingImageStatus.SUCCESS);
+    setUploadProgress({ current: 0, total: filesToUpload.length });
 
     try {
-      if (pendingFiles.length > 0) {
-        setUploading(true);
-        const response = await uploadApi.uploadProductImages(
-          pendingFiles.map((item) => item.file),
-          { chunkSize: UPLOAD_CHUNK_SIZE }
+      for (let i = 0; i < pendingFiles.length; i++) {
+        const pf = pendingFiles[i];
+        if (pf.status === PendingImageStatus.SUCCESS) continue;
+
+        setPendingFiles((current) => 
+          current.map((item, idx) => 
+            idx === i ? { ...item, status: PendingImageStatus.UPLOADING, error: null } : item
+          )
         );
-        nextImageUrls = [...nextImageUrls, ...(response.data?.urls || [])];
+
+        try {
+          const response = await uploadApi.uploadProductImages([pf.file]);
+          const url = response.data?.results?.[0]?.url;
+          if (url) {
+            setPendingFiles((current) => 
+              current.map((item, idx) => 
+                idx === i ? { ...item, status: PendingImageStatus.SUCCESS, url } : item
+              )
+            );
+          }
+        } catch (err) {
+          setPendingFiles((current) => 
+            current.map((item, idx) => 
+              idx === i ? { ...item, status: PendingImageStatus.ERROR, error: err.message } : item
+            )
+          );
+          throw new Error(`Failed to upload image ${i + 1}: ${err.message}`);
+        } finally {
+          setUploadProgress((prev) => ({ ...prev, current: prev.current + 1 }));
+        }
       }
 
+      // Now proceed to upload other media and save product
+      let nextImageUrls = [...imageUrls];
+      let nextVideoUrl = videoUrl;
+      let nextSizeChartUrl = sizeChartUrl;
+
+      // Add successfully uploaded pending files
+      nextImageUrls = [
+        ...nextImageUrls,
+        ...pendingFiles.filter(pf => pf.status === PendingImageStatus.SUCCESS).map(pf => pf.url)
+      ];
+
       if (pendingVideoFile?.file) {
-        setUploading(true);
         const response = await uploadApi.uploadProductVideo(pendingVideoFile.file);
         nextVideoUrl = response.data?.url || nextVideoUrl;
       }
 
       if (pendingSizeChartFile?.file) {
-        setUploading(true);
         const response = await uploadApi.uploadSizeChartImage(pendingSizeChartFile.file);
         nextSizeChartUrl = response.data?.url || nextSizeChartUrl;
       }
-    } catch (err) {
-      setUploadError(err.message || 'Failed to upload media');
-      setSaving(false);
-      setUploading(false);
-      return;
-    } finally {
-      setUploading(false);
-    }
 
-    const manualUrls = parseCommaList(manualImageUrls);
-    nextImageUrls = [...nextImageUrls, ...manualUrls].slice(0, MAX_PRODUCT_IMAGES);
+      const manualUrls = parseCommaList(manualImageUrls);
+      nextImageUrls = [...nextImageUrls, ...manualUrls].slice(0, MAX_PRODUCT_IMAGES);
 
-    const legacyFields = addVariations
-      ? deriveLegacyFieldsFromVariations(variationGroups)
-      : {
-          ringSizes: showRingSizes ? parseCommaList(form.ringSizes) : [],
-          metalColors: parseCommaList(form.metalColors),
-        };
+      // Check min images again (after uploads)
+      if (nextImageUrls.length < MIN_PRODUCT_IMAGES && form.status === 'active') {
+        throw new Error(`At least ${MIN_PRODUCT_IMAGES} product images are required for active products`);
+      }
 
-    const payload = {
-      title: form.title.trim(),
-      shortDescription: form.shortDescription.trim() || undefined,
-      description: form.description.trim() || undefined,
-      category: form.category,
-      brand: form.brand.trim() || undefined,
-      images: nextImageUrls,
-      video: nextVideoUrl || undefined,
-      price: Number(form.price),
-      oldPrice: form.oldPrice !== '' ? Number(form.oldPrice) : undefined,
-      sku: form.sku.trim(),
-      stock: Number(form.stock) || 0,
-      ringSizes: legacyFields.ringSizes,
-      metalColors: legacyFields.metalColors,
-      material: form.material.trim() || undefined,
-      tags: parseCommaList(form.tags),
-      isFeatured: form.isFeatured,
-      isTrending: form.isTrending,
-      isNewArrival: form.isNewArrival,
-      isCustomizable: form.isCustomizable,
-      customizationOptions: form.isCustomizable
-        ? form.customizationOptions
-        : getDefaultCustomizationOptions(),
-      status: form.status,
-      variationGroups: addVariations
-        ? variationGroups
-            .filter((group) => group.name.trim())
-            .map((group) => ({
-              name: group.name.trim(),
-              options: group.options.map((option) => option.trim()).filter(Boolean),
+      const legacyFields = addVariations
+        ? deriveLegacyFieldsFromVariations(variationGroups)
+        : {
+            ringSizes: showRingSizes ? parseCommaList(form.ringSizes) : [],
+            metalColors: parseCommaList(form.metalColors),
+          };
+
+      const payload = {
+        title: form.title.trim(),
+        shortDescription: form.shortDescription.trim() || undefined,
+        description: form.description.trim() || undefined,
+        category: form.category,
+        brand: form.brand.trim() || undefined,
+        images: nextImageUrls,
+        video: nextVideoUrl || undefined,
+        price: Number(form.price),
+        oldPrice: form.oldPrice !== '' ? Number(form.oldPrice) : undefined,
+        sku: form.sku.trim(),
+        stock: Number(form.stock) || 0,
+        ringSizes: legacyFields.ringSizes,
+        metalColors: legacyFields.metalColors,
+        material: form.material.trim() || undefined,
+        tags: parseCommaList(form.tags),
+        isFeatured: form.isFeatured,
+        isTrending: form.isTrending,
+        isNewArrival: form.isNewArrival,
+        isCustomizable: form.isCustomizable,
+        customizationOptions: form.isCustomizable
+          ? form.customizationOptions
+          : getDefaultCustomizationOptions(),
+        status: form.status,
+        variationGroups: addVariations
+          ? variationGroups
+              .filter((group) => group.name.trim())
+              .map((group) => ({
+                name: group.name.trim(),
+                options: group.options.map((option) => option.trim()).filter(Boolean),
+              }))
+              .filter((group) => group.options.length > 0)
+          : [],
+        variants: addVariations
+          ? variants.map((variant) => ({
+              attributes: variant.attributes,
+              stock: Number(variant.stock) || 0,
+              price: variant.price !== '' && variant.price != null ? Number(variant.price) : undefined,
+              sku: variant.sku?.trim() || undefined,
+              image: variant.image?.trim() || undefined,
             }))
-            .filter((group) => group.options.length > 0)
-        : [],
-      variants: addVariations
-        ? variants.map((variant) => ({
-            attributes: variant.attributes,
-            stock: Number(variant.stock) || 0,
-            price: variant.price !== '' && variant.price != null ? Number(variant.price) : undefined,
-            sku: variant.sku?.trim() || undefined,
-            image: variant.image?.trim() || undefined,
-          }))
-        : [],
-      sizeChart: {
-        enabled: sizeChartEnabled && Boolean(nextSizeChartUrl),
-        imageUrl: sizeChartEnabled ? nextSizeChartUrl : '',
-      },
-    };
+          : [],
+        sizeChart: {
+          enabled: sizeChartEnabled && Boolean(nextSizeChartUrl),
+          imageUrl: sizeChartEnabled ? nextSizeChartUrl : '',
+        },
+      };
 
-    if (form.slug.trim()) {
-      payload.slug = form.slug.trim();
-    }
+      if (form.slug.trim()) {
+        payload.slug = form.slug.trim();
+      }
 
-    try {
       if (isEditing) {
         await productApi.updateProduct(id, payload);
       } else {
@@ -515,6 +590,7 @@ export default function ProductForm() {
       setError(err.message || 'Failed to save product');
     } finally {
       setSaving(false);
+      setUploadProgress({ current: 0, total: 0 });
     }
   };
 
@@ -545,7 +621,7 @@ export default function ProductForm() {
               <button
                 type="submit"
                 className="btn-primary"
-                disabled={saving || uploading || categories.length === 0}
+                disabled={saving || uploading || categories.length === 0 || totalSelectedImages < MIN_PRODUCT_IMAGES}
               >
                 {uploading ? 'Uploading media...' : saving ? 'Saving...' : isEditing ? 'Update' : 'Create Product'}
               </button>
@@ -588,7 +664,7 @@ export default function ProductForm() {
               <section className="product-form-section">
                 <h3 className="product-form-section-title">Product Media</h3>
                 <p className="product-form-section-hint">
-                  Upload up to {MAX_PRODUCT_IMAGES} images and one optional product video.
+                  Upload at least {MIN_PRODUCT_IMAGES} (max {MAX_PRODUCT_IMAGES}) images and one optional product video.
                 </p>
 
                 <input
@@ -659,8 +735,8 @@ export default function ProductForm() {
                 </div>
 
                 <div className="image-upload-header">
-                  <span className="image-upload-count">
-                    {totalSelectedImages} / {MAX_PRODUCT_IMAGES} images selected
+                  <span className={`image-upload-count ${totalSelectedImages < MIN_PRODUCT_IMAGES ? 'text-red-600' : ''}`}>
+                    {totalSelectedImages} / {MAX_PRODUCT_IMAGES} images selected (minimum {MIN_PRODUCT_IMAGES} required)
                   </span>
                   {remainingImageSlots > 0 && (
                     <button
@@ -684,26 +760,66 @@ export default function ProductForm() {
                           type="button"
                           className="btn-text btn-text-danger"
                           onClick={() => handleRemoveUploadedImage(index)}
-                          disabled={saving || uploading}
+                          disabled={saving}
                         >
                           Remove
                         </button>
                       </div>
                     ))}
                     {pendingFiles.map((item, index) => (
-                      <div key={item.key} className="image-preview-card image-preview-pending">
+                      <div key={item.key} className={`image-preview-card ${
+                        item.status === PendingImageStatus.UPLOADING ? 'image-preview-pending' : 
+                        item.status === PendingImageStatus.ERROR ? 'image-preview-error' : 
+                        item.status === PendingImageStatus.SUCCESS ? 'image-preview-success' : 
+                        'image-preview-pending'
+                      }`}>
                         <img src={item.previewUrl} alt={item.file.name} className="image-preview" />
-                        <span className="image-preview-label">Pending upload</span>
-                        <button
-                          type="button"
-                          className="btn-text btn-text-danger"
-                          onClick={() => handleRemovePendingFile(index)}
-                          disabled={saving || uploading}
-                        >
-                          Remove
-                        </button>
+                        <span className="image-preview-label">
+                          {item.status === PendingImageStatus.UPLOADING ? 'Uploading...' :
+                           item.status === PendingImageStatus.ERROR ? 'Upload failed' :
+                           item.status === PendingImageStatus.SUCCESS ? 'Uploaded' :
+                           'Pending upload'}
+                        </span>
+                        {item.status === PendingImageStatus.ERROR && (
+                          <span className="text-xs text-red-500 mt-1">{item.error}</span>
+                        )}
+                        <div className="flex gap-2 mt-2">
+                          {item.status === PendingImageStatus.ERROR && (
+                            <button
+                              type="button"
+                              className="btn-text btn-text-primary"
+                              onClick={() => handleRetryPendingFile(index)}
+                              disabled={saving}
+                            >
+                              Retry
+                            </button>
+                          )}
+                          <button
+                            type="button"
+                            className="btn-text btn-text-danger"
+                            onClick={() => handleRemovePendingFile(index)}
+                            disabled={saving}
+                          >
+                            Remove
+                          </button>
+                        </div>
                       </div>
                     ))}
+                  </div>
+                )}
+
+                {/* Upload progress indicator */}
+                {uploadProgress.total > 0 && (
+                  <div className="mt-4">
+                    <p className="text-sm text-gray-600">
+                      Uploading {uploadProgress.current} of {uploadProgress.total} images...
+                    </p>
+                    <div className="w-full bg-gray-200 rounded-full h-2.5 mt-2">
+                      <div
+                        className="bg-blue-600 h-2.5 rounded-full transition-all duration-300"
+                        style={{ width: `${(uploadProgress.current / uploadProgress.total) * 100}%` }}
+                      />
+                    </div>
                   </div>
                 )}
 

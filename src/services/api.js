@@ -1,4 +1,5 @@
 import { resolveApiBaseUrl } from '../utils/apiBaseUrl.js';
+import { optimizeImage } from '../utils/images.js';
 
 const API_BASE_URL = resolveApiBaseUrl();
 
@@ -252,26 +253,59 @@ export const newsletterApi = {
 };
 
 export const uploadApi = {
-  uploadProductImages: async (files, { chunkSize = 1 } = {}) => {
-    const uploadedUrls = [];
+  getProductImagePresignedUrl: async (filename, contentType) => {
+    return request('/uploads/product-images/presigned-url', {
+      method: 'POST',
+      body: JSON.stringify({ filename, contentType }),
+      headers: {
+        'Content-Type': 'application/json',
+      },
+    });
+  },
 
-    for (let index = 0; index < files.length; index += chunkSize) {
-      const chunk = files.slice(index, index + chunkSize);
+  uploadProductImages: async (files, options = {}) => {
+    const { onProgress, onError, onSuccess } = options;
+    const results = [];
 
-      for (const file of chunk) {
-        const formData = new FormData();
-        formData.append('images', file);
+    for (let i = 0; i < files.length; i++) {
+      const file = files[i];
 
-        const response = await request('/uploads/product-images', {
-          method: 'POST',
-          body: formData,
+      try {
+        // Step 1: Optimize image client-side
+        const { file: optimizedFile } = await optimizeImage(file, {
+          maxWidthOrHeight: 2400,
+          maxSizeMB: 4,
+          initialQuality: 0.85,
+          useWebp: true,
         });
 
-        uploadedUrls.push(...(response.data?.urls || []));
+        // Step 2: Get presigned URL from backend
+        const presignedResponse = await uploadApi.getProductImagePresignedUrl(
+          optimizedFile.name,
+          optimizedFile.type
+        );
+        const { presignedUrl, publicUrl } = presignedResponse.data;
+
+        // Step 3: Upload directly to R2
+        await fetch(presignedUrl, {
+          method: 'PUT',
+          body: optimizedFile,
+          headers: {
+            'Content-Type': optimizedFile.type,
+          },
+        });
+
+        results.push({ file, url: publicUrl, success: true });
+        onSuccess?.(i, publicUrl);
+      } catch (error) {
+        results.push({ file, error, success: false });
+        onError?.(i, error);
       }
+
+      onProgress?.(i + 1, files.length);
     }
 
-    return { data: { urls: uploadedUrls } };
+    return { data: { results } };
   },
 
   uploadProductVideo: (file) => {
