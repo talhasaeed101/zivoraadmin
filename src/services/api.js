@@ -253,10 +253,10 @@ export const newsletterApi = {
 };
 
 export const uploadApi = {
-  getProductImagePresignedUrl: async (filename, contentType) => {
+  getProductImagePresignedUrl: async (filename, contentType, fileSize) => {
     return request('/uploads/product-images/presigned-url', {
       method: 'POST',
-      body: JSON.stringify({ filename, contentType }),
+      body: JSON.stringify({ filename, contentType, fileSize }),
       headers: {
         'Content-Type': 'application/json',
       },
@@ -272,17 +272,13 @@ export const uploadApi = {
 
       try {
         // Step 1: Optimize image client-side
-        const { file: optimizedFile } = await optimizeImage(file, {
-          maxWidthOrHeight: 2400,
-          maxSizeMB: 4,
-          initialQuality: 0.85,
-          useWebp: true,
-        });
+        const { file: optimizedFile } = await optimizeImage(file);
 
         // Step 2: Get presigned URL from backend
         const presignedResponse = await uploadApi.getProductImagePresignedUrl(
           optimizedFile.name,
-          optimizedFile.type
+          optimizedFile.type,
+          optimizedFile.size
         );
         const { presignedUrl, publicUrl } = presignedResponse.data;
 

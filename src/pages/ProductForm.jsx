@@ -17,7 +17,7 @@ import './Products.css';
 const MIN_PRODUCT_IMAGES = 8;
 const MAX_PRODUCT_IMAGES = 12;
 const UPLOAD_CHUNK_SIZE = 1;
-const MAX_IMAGE_BYTES = 4 * 1024 * 1024; // 4 MB
+const MAX_SOURCE_IMAGE_BYTES = 15 * 1024 * 1024; // 15 MB
 
 const createDefaultForm = () => ({
   title: '',
@@ -235,10 +235,10 @@ export default function ProductForm() {
     const files = Array.from(event.target.files || []);
     if (!files.length) return;
 
-    const oversized = files.find((file) => file.size > MAX_IMAGE_BYTES);
+    const oversized = files.find((file) => file.size > MAX_SOURCE_IMAGE_BYTES);
     if (oversized) {
       setUploadError(
-        `"${oversized.name}" is too large. Each image must be ${MAX_IMAGE_BYTES / (1024 * 1024)}MB or less.`
+        `"${oversized.name}" is too large. Each source image must be ${MAX_SOURCE_IMAGE_BYTES / (1024 * 1024)} MB or less.`
       );
       event.target.value = '';
       return;
