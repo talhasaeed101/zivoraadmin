@@ -263,6 +263,17 @@ export const uploadApi = {
     });
   },
 
+  // Upload multiple product images via backend API (returns array of URLs)
+  uploadProductImagesViaBackend: async (files) => {
+    const formData = new FormData();
+    files.forEach((file) => formData.append('images', file));
+
+    return request('/uploads/product-images', {
+      method: 'POST',
+      body: formData,
+    });
+  },
+
   uploadProductImages: async (files, options = {}) => {
     const { onProgress, onError, onSuccess } = options;
     const results = [];

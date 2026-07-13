@@ -864,7 +864,7 @@ export default function ProductForm() {
                       value={form.category}
                       onChange={handleChange}
                       required
-                      disabled={saving || uploading || categories.length === 0}
+                      disabled={saving || uploadProgress.total > 0 || categories.length === 0}
                     >
                       <option value="">Select category</option>
                       {categories.map((category) => (
