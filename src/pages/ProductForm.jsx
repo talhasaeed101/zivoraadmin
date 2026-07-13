@@ -621,9 +621,9 @@ export default function ProductForm() {
               <button
                 type="submit"
                 className="btn-primary"
-                disabled={saving || uploading || categories.length === 0 || totalSelectedImages < MIN_PRODUCT_IMAGES}
+                disabled={saving || uploadProgress.total > 0 || categories.length === 0 || totalSelectedImages < MIN_PRODUCT_IMAGES}
               >
-                {uploading ? 'Uploading media...' : saving ? 'Saving...' : isEditing ? 'Update' : 'Create Product'}
+                {uploadProgress.total > 0 ? 'Uploading media...' : saving ? 'Saving...' : isEditing ? 'Update' : 'Create Product'}
               </button>
             </div>
           </div>
@@ -675,7 +675,7 @@ export default function ProductForm() {
                   multiple
                   className="image-upload-input-hidden"
                   onChange={handleImageFilesChange}
-                  disabled={saving || uploading || totalSelectedImages >= MAX_PRODUCT_IMAGES}
+                  disabled={saving || uploadProgress.total > 0 || totalSelectedImages >= MAX_PRODUCT_IMAGES}
                 />
                 <input
                   ref={videoInputRef}
@@ -683,7 +683,7 @@ export default function ProductForm() {
                   accept=".mp4,.webm,.mov,video/mp4,video/webm,video/quicktime"
                   className="image-upload-input-hidden"
                   onChange={handleVideoChange}
-                  disabled={saving || uploading}
+                  disabled={saving || uploadProgress.total > 0}
                 />
 
                 <div className="product-media-grid">
@@ -691,7 +691,7 @@ export default function ProductForm() {
                     type="button"
                     className={`product-media-slot product-media-slot-main ${previewImage ? 'product-media-slot-filled' : ''}`}
                     onClick={() => imageInputRef.current?.click()}
-                    disabled={remainingImageSlots <= 0 || saving || uploading}
+                    disabled={remainingImageSlots <= 0 || saving || uploadProgress.total > 0}
                   >
                     {previewImage ? (
                       <img src={previewImage} alt="Main" />
@@ -709,7 +709,7 @@ export default function ProductForm() {
                       type="button"
                       className="product-media-slot"
                       onClick={() => imageInputRef.current?.click()}
-                      disabled={saving || uploading}
+                      disabled={saving || uploadProgress.total > 0}
                     >
                       <span className="product-media-slot-action">Upload image</span>
                     </button>
@@ -719,7 +719,7 @@ export default function ProductForm() {
                     type="button"
                     className={`product-media-slot product-media-slot-video ${videoUrl || pendingVideoFile ? 'product-media-slot-filled' : ''}`}
                     onClick={() => videoInputRef.current?.click()}
-                    disabled={saving || uploading}
+                    disabled={saving || uploadProgress.total > 0}
                   >
                     {pendingVideoFile?.previewUrl ? (
                       <video src={pendingVideoFile.previewUrl} muted playsInline />
@@ -743,7 +743,7 @@ export default function ProductForm() {
                       type="button"
                       className="btn-secondary image-upload-browse-btn"
                       onClick={() => imageInputRef.current?.click()}
-                      disabled={saving || uploading}
+                      disabled={saving || uploadProgress.total > 0}
                     >
                       Add Images
                     </button>
@@ -834,7 +834,7 @@ export default function ProductForm() {
                       setManualImageUrls(event.target.value);
                       setUploadError('');
                     }}
-                    disabled={saving || uploading}
+                    disabled={saving || uploadProgress.total > 0}
                     placeholder="Comma-separated image URLs"
                   />
                 </div>
@@ -852,7 +852,7 @@ export default function ProductForm() {
                       value={form.title}
                       onChange={handleChange}
                       required
-                      disabled={saving || uploading}
+                      disabled={saving || uploadProgress.total > 0}
                     />
                   </div>
 
@@ -883,7 +883,7 @@ export default function ProductForm() {
                       type="text"
                       value={form.brand}
                       onChange={handleChange}
-                      disabled={saving || uploading}
+                      disabled={saving || uploadProgress.total > 0}
                       placeholder="No brand"
                     />
                   </div>
@@ -896,7 +896,7 @@ export default function ProductForm() {
                       type="text"
                       value={form.slug}
                       onChange={handleChange}
-                      disabled={saving || uploading}
+                      disabled={saving || uploadProgress.total > 0}
                       placeholder="Auto-generated from title if empty"
                     />
                   </div>
@@ -908,7 +908,7 @@ export default function ProductForm() {
                       name="status"
                       value={form.status}
                       onChange={handleChange}
-                      disabled={saving || uploading}
+                      disabled={saving || uploadProgress.total > 0}
                     >
                       <option value="draft">Draft</option>
                       <option value="active">Active</option>
@@ -924,7 +924,7 @@ export default function ProductForm() {
                       type="text"
                       value={form.shortDescription}
                       onChange={handleChange}
-                      disabled={saving || uploading}
+                      disabled={saving || uploadProgress.total > 0}
                     />
                   </div>
 
@@ -935,7 +935,7 @@ export default function ProductForm() {
                       name="description"
                       value={form.description}
                       onChange={handleChange}
-                      disabled={saving || uploading}
+                      disabled={saving || uploadProgress.total > 0}
                       rows={6}
                     />
                   </div>
@@ -948,7 +948,7 @@ export default function ProductForm() {
                       type="text"
                       value={form.material}
                       onChange={handleChange}
-                      disabled={saving || uploading}
+                      disabled={saving || uploadProgress.total > 0}
                       placeholder="18K Gold"
                     />
                   </div>
@@ -961,7 +961,7 @@ export default function ProductForm() {
                       type="text"
                       value={form.tags}
                       onChange={handleChange}
-                      disabled={saving || uploading}
+                      disabled={saving || uploadProgress.total > 0}
                       placeholder="ring, diamond, wedding"
                     />
                   </div>
@@ -982,7 +982,7 @@ export default function ProductForm() {
                       value={form.price}
                       onChange={handleChange}
                       required
-                      disabled={saving || uploading}
+                      disabled={saving || uploadProgress.total > 0}
                     />
                   </div>
 
@@ -996,7 +996,7 @@ export default function ProductForm() {
                       step="0.01"
                       value={form.oldPrice}
                       onChange={handleChange}
-                      disabled={saving || uploading}
+                      disabled={saving || uploadProgress.total > 0}
                     />
                   </div>
 
@@ -1009,7 +1009,7 @@ export default function ProductForm() {
                       value={form.sku}
                       onChange={handleChange}
                       required
-                      disabled={saving || uploading}
+                      disabled={saving || uploadProgress.total > 0}
                     />
                   </div>
 
@@ -1022,7 +1022,7 @@ export default function ProductForm() {
                       min="0"
                       value={form.stock}
                       onChange={handleChange}
-                      disabled={saving || uploading}
+                      disabled={saving || uploadProgress.total > 0}
                     />
                   </div>
                 </div>
@@ -1034,7 +1034,7 @@ export default function ProductForm() {
                       name="isFeatured"
                       checked={form.isFeatured}
                       onChange={handleChange}
-                      disabled={saving || uploading}
+                      disabled={saving || uploadProgress.total > 0}
                     />
                     Featured (Bundles)
                   </label>
@@ -1044,7 +1044,7 @@ export default function ProductForm() {
                       name="isTrending"
                       checked={form.isTrending}
                       onChange={handleChange}
-                      disabled={saving || uploading}
+                      disabled={saving || uploadProgress.total > 0}
                     />
                     Trending
                   </label>
@@ -1054,7 +1054,7 @@ export default function ProductForm() {
                       name="isNewArrival"
                       checked={form.isNewArrival}
                       onChange={handleChange}
-                      disabled={saving || uploading}
+                      disabled={saving || uploadProgress.total > 0}
                     />
                     New Arrival
                   </label>
@@ -1064,7 +1064,7 @@ export default function ProductForm() {
                       name="isCustomizable"
                       checked={form.isCustomizable}
                       onChange={handleChange}
-                      disabled={saving || uploading}
+                      disabled={saving || uploadProgress.total > 0}
                     />
                     Customizable Product
                   </label>
@@ -1092,7 +1092,7 @@ export default function ProductForm() {
                           );
                         }
                       }}
-                      disabled={saving || uploading}
+                      disabled={saving || uploadProgress.total > 0}
                     />
                     <span>Add variations</span>
                   </label>
@@ -1110,7 +1110,7 @@ export default function ProductForm() {
                               value={group.name}
                               onChange={(event) => updateVariationGroupName(groupIndex, event.target.value)}
                               placeholder="Color, Ring Size..."
-                              disabled={saving || uploading}
+                              disabled={saving || uploadProgress.total > 0}
                             />
                           </div>
                           {variationGroups.length > 1 && (
@@ -1118,7 +1118,7 @@ export default function ProductForm() {
                               type="button"
                               className="btn-text btn-text-danger"
                               onClick={() => removeVariationGroup(groupIndex)}
-                              disabled={saving || uploading}
+                              disabled={saving || uploadProgress.total > 0}
                             >
                               Remove group
                             </button>
@@ -1135,13 +1135,13 @@ export default function ProductForm() {
                                   updateVariationOption(groupIndex, optionIndex, event.target.value)
                                 }
                                 placeholder="Option value"
-                                disabled={saving || uploading}
+                                disabled={saving || uploadProgress.total > 0}
                               />
                               <button
                                 type="button"
                                 className="btn-text btn-text-danger"
                                 onClick={() => removeVariationOption(groupIndex, optionIndex)}
-                                disabled={saving || uploading}
+                                disabled={saving || uploadProgress.total > 0}
                               >
                                 Delete
                               </button>
@@ -1151,7 +1151,7 @@ export default function ProductForm() {
                             type="button"
                             className="btn-text"
                             onClick={() => addVariationOption(groupIndex)}
-                            disabled={saving || uploading}
+                            disabled={saving || uploadProgress.total > 0}
                           >
                             + Add option
                           </button>
@@ -1163,7 +1163,7 @@ export default function ProductForm() {
                       type="button"
                       className="btn-secondary variation-add-group-btn"
                       onClick={addVariationGroup}
-                      disabled={saving || uploading}
+                      disabled={saving || uploadProgress.total > 0}
                     >
                       + Add variation
                     </button>
@@ -1177,7 +1177,7 @@ export default function ProductForm() {
                             placeholder="Batch stock"
                             value={batchStock}
                             onChange={(event) => setBatchStock(event.target.value)}
-                            disabled={saving || uploading}
+                            disabled={saving || uploadProgress.total > 0}
                           />
                           <input
                             type="number"
@@ -1186,13 +1186,13 @@ export default function ProductForm() {
                             placeholder="Batch price"
                             value={batchPrice}
                             onChange={(event) => setBatchPrice(event.target.value)}
-                            disabled={saving || uploading}
+                            disabled={saving || uploadProgress.total > 0}
                           />
                           <button
                             type="button"
                             className="btn-secondary"
                             onClick={applyBatchVariantValues}
-                            disabled={saving || uploading}
+                            disabled={saving || uploadProgress.total > 0}
                           >
                             Apply
                           </button>
@@ -1225,7 +1225,7 @@ export default function ProductForm() {
                                     onChange={(event) =>
                                       updateVariantField(index, 'stock', event.target.value)
                                     }
-                                    disabled={saving || uploading}
+                                    disabled={saving || uploadProgress.total > 0}
                                   />
                                 </td>
                                 <td>
@@ -1237,7 +1237,7 @@ export default function ProductForm() {
                                     onChange={(event) =>
                                       updateVariantField(index, 'price', event.target.value)
                                     }
-                                    disabled={saving || uploading}
+                                    disabled={saving || uploadProgress.total > 0}
                                   />
                                 </td>
                                 <td>
@@ -1247,7 +1247,7 @@ export default function ProductForm() {
                                     onChange={(event) =>
                                       updateVariantField(index, 'sku', event.target.value)
                                     }
-                                    disabled={saving || uploading}
+                                    disabled={saving || uploadProgress.total > 0}
                                   />
                                 </td>
                               </tr>
@@ -1268,7 +1268,7 @@ export default function ProductForm() {
                           type="text"
                           value={form.ringSizes}
                           onChange={handleChange}
-                          disabled={saving || uploading}
+                          disabled={saving || uploadProgress.total > 0}
                           placeholder="6, 7, 8"
                         />
                       </div>
@@ -1281,7 +1281,7 @@ export default function ProductForm() {
                         type="text"
                         value={form.metalColors}
                         onChange={handleChange}
-                        disabled={saving || uploading}
+                        disabled={saving || uploadProgress.total > 0}
                         placeholder="gold, rose-gold, silver"
                       />
                     </div>
@@ -1302,7 +1302,7 @@ export default function ProductForm() {
                       type="checkbox"
                       checked={sizeChartEnabled}
                       onChange={(event) => setSizeChartEnabled(event.target.checked)}
-                      disabled={saving || uploading}
+                      disabled={saving || uploadProgress.total > 0}
                     />
                     <span>Enable size chart</span>
                   </label>
@@ -1316,14 +1316,14 @@ export default function ProductForm() {
                       accept=".jpg,.jpeg,.png,.webp,image/jpeg,image/png,image/webp"
                       className="image-upload-input-hidden"
                       onChange={handleSizeChartChange}
-                      disabled={saving || uploading}
+                      disabled={saving || uploadProgress.total > 0}
                     />
                     <div className="size-chart-upload-row">
                       <button
                         type="button"
                         className="btn-secondary"
                         onClick={() => sizeChartInputRef.current?.click()}
-                        disabled={saving || uploading}
+                        disabled={saving || uploadProgress.total > 0}
                       >
                         Upload size chart image
                       </button>
@@ -1346,7 +1346,7 @@ export default function ProductForm() {
                     onChange={(nextOptions) =>
                       setForm((prev) => ({ ...prev, customizationOptions: nextOptions }))
                     }
-                    disabled={saving || uploading}
+                    disabled={saving || uploadProgress.total > 0}
                   />
                 </section>
               )}
