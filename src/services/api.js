@@ -247,6 +247,24 @@ export const contactApi = {
     }),
 };
 
+export const ticketApi = {
+  getTickets: (params = {}) => request(`/admin/tickets${buildQueryString(params)}`),
+
+  getTicket: (id) => request(`/admin/tickets/${id}`),
+
+  replyToTicket: (id, payload) =>
+    request(`/admin/tickets/${id}/reply`, {
+      method: 'POST',
+      body: JSON.stringify(payload),
+    }),
+
+  updateTicket: (id, payload) =>
+    request(`/admin/tickets/${id}`, {
+      method: 'PATCH',
+      body: JSON.stringify(payload),
+    }),
+};
+
 export const newsletterApi = {
   getSubscribers: (params = {}) =>
     request(`/admin/newsletter-subscribers${buildQueryString(params)}`),
