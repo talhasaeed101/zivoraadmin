@@ -1,9 +1,11 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useState, useCallback } from 'react';
 import { Link, useParams } from 'react-router-dom';
 import AdminLayout from '../components/AdminLayout.jsx';
+import ConfirmModal from '../components/ConfirmModal.jsx';
 import { orderApi } from '../services/api.js';
 import { buildCustomizationSummaryLines } from '../utils/customizationSummary.js';
 import { ORDER_STATUS, ORDER_STATUS_LABELS, getAvailableNextStatuses } from '../constants/orderConstants.js';
+import { useSocket } from '../context/SocketContext.jsx';
 import './Orders.css';
 
 const formatPrice = (value) => {
@@ -52,11 +54,14 @@ const formatPaymentMethod = (method) => {
 
 export default function OrderDetails() {
   const { id } = useParams();
+  const { onOrderUpdated } = useSocket();
   const [order, setOrder] = useState(null);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState('');
   const [successMessage, setSuccessMessage] = useState('');
+  const [confirmModalOpen, setConfirmModalOpen] = useState(false);
+  const [pendingStatusChange, setPendingStatusChange] = useState(null);
   const [form, setForm] = useState({
     orderStatus: 'pending',
     paymentStatus: 'pending',
@@ -68,53 +73,73 @@ export default function OrderDetails() {
     estimatedDeliveryDate: '',
   });
 
+  const loadOrder = useCallback(async () => {
+    setLoading(true);
+    setError('');
+    setSuccessMessage('');
+
+    try {
+      const response = await orderApi.getOrder(id);
+      const orderData = response.data;
+
+      setOrder(orderData);
+      setForm({
+        orderStatus: orderData.orderStatus || 'pending',
+        paymentStatus: orderData.paymentStatus || 'pending',
+        notes: '',
+        isCustomerVisible: false,
+        trackingNumber: orderData.trackingNumber || '',
+        courierName: orderData.courierName || '',
+        trackingUrl: orderData.trackingUrl || '',
+        estimatedDeliveryDate: orderData.estimatedDeliveryDate ? new Date(orderData.estimatedDeliveryDate).toISOString().split('T')[0] : '',
+      });
+    } catch (err) {
+      setError(err.message || 'Failed to load order');
+      setOrder(null);
+    } finally {
+      setLoading(false);
+    }
+  }, [id]);
+
   useEffect(() => {
-    let isMounted = true;
-
-    const loadOrder = async () => {
-      setLoading(true);
-      setError('');
-      setSuccessMessage('');
-
-      try {
-        const response = await orderApi.getOrder(id);
-        const orderData = response.data;
-
-        if (isMounted) {
-          setOrder(orderData);
-          setForm({
-            orderStatus: orderData.orderStatus || 'pending',
-            paymentStatus: orderData.paymentStatus || 'pending',
-            notes: '',
-            isCustomerVisible: false,
-            trackingNumber: '',
-            courierName: '',
-            trackingUrl: '',
-            estimatedDeliveryDate: '',
-          });
-        }
-      } catch (err) {
-        if (isMounted) {
-          setError(err.message || 'Failed to load order');
-          setOrder(null);
-        }
-      } finally {
-        if (isMounted) {
-          setLoading(false);
-        }
-      }
-    };
-
     loadOrder();
 
-    return () => {
-      isMounted = false;
-    };
-  }, [id]);
+    // Listen for socket order updates
+    const unsubscribe = onOrderUpdated((updatedOrder) => {
+      if (updatedOrder._id === id) {
+        setOrder(updatedOrder);
+        setForm(prev => ({
+          ...prev,
+          orderStatus: updatedOrder.orderStatus,
+          paymentStatus: updatedOrder.paymentStatus,
+        }));
+      }
+    });
+
+    return unsubscribe;
+  }, [id, loadOrder, onOrderUpdated]);
 
   const handleChange = (event) => {
     const { name, value, type, checked } = event.target;
-    setForm((prev) => ({ ...prev, [name]: type === 'checkbox' ? checked : value }));
+    if (name === 'orderStatus' && value === ORDER_STATUS.CANCELLED && order?.orderStatus !== ORDER_STATUS.CANCELLED) {
+      setPendingStatusChange(value);
+      setConfirmModalOpen(true);
+    } else {
+      setForm((prev) => ({ ...prev, [name]: type === 'checkbox' ? checked : value }));
+    }
+  };
+
+  const handleConfirmCancel = () => {
+    if (pendingStatusChange) {
+      setForm(prev => ({ ...prev, orderStatus: pendingStatusChange }));
+      setPendingStatusChange(null);
+      setConfirmModalOpen(false);
+    }
+  };
+
+  const handleCancelConfirm = () => {
+    setPendingStatusChange(null);
+    setConfirmModalOpen(false);
   };
 
   const handleSubmit = async (event) => {
@@ -141,6 +166,14 @@ export default function OrderDetails() {
         }
       }
 
+      // Always send shipping fields if order is already shipped or delivered
+      if ([ORDER_STATUS.SHIPPED, ORDER_STATUS.DELIVERED].includes(order.orderStatus)) {
+        payload.trackingNumber = form.trackingNumber;
+        payload.courierName = form.courierName;
+        payload.trackingUrl = form.trackingUrl;
+        payload.estimatedDeliveryDate = form.estimatedDeliveryDate;
+      }
+
       const response = await orderApi.updateOrderStatus(id, payload);
 
       const updatedOrder = response.data;
@@ -150,10 +183,10 @@ export default function OrderDetails() {
         paymentStatus: updatedOrder.paymentStatus || 'pending',
         notes: '',
         isCustomerVisible: false,
-        trackingNumber: '',
-        courierName: '',
-        trackingUrl: '',
-        estimatedDeliveryDate: '',
+        trackingNumber: updatedOrder.trackingNumber || '',
+        courierName: updatedOrder.courierName || '',
+        trackingUrl: updatedOrder.trackingUrl || '',
+        estimatedDeliveryDate: updatedOrder.estimatedDeliveryDate ? new Date(updatedOrder.estimatedDeliveryDate).toISOString().split('T')[0] : '',
       });
       setSuccessMessage('Order updated successfully.');
     } catch (err) {
@@ -169,6 +202,15 @@ export default function OrderDetails() {
 
   return (
     <AdminLayout title="Order Details" label="Sales">
+      <ConfirmModal
+        open={confirmModalOpen}
+        title="Cancel Order"
+        message="Are you sure you want to cancel this order? This action cannot be undone."
+        confirmLabel="Cancel Order"
+        loading={saving}
+        onConfirm={handleConfirmCancel}
+        onCancel={handleCancelConfirm}
+      />
       <div className="orders-page">
         <div className="order-detail-toolbar">
           <Link to="/orders" className="btn-text">
@@ -358,7 +400,7 @@ export default function OrderDetails() {
                   </select>
                 </div>
 
-                {form.orderStatus === ORDER_STATUS.SHIPPED && (
+                {(form.orderStatus === ORDER_STATUS.SHIPPED || [ORDER_STATUS.SHIPPED, ORDER_STATUS.DELIVERED].includes(order?.orderStatus)) && (
                   <>
                     <div className="admin-form-field">
                       <label htmlFor="courierName">Courier Name *</label>
@@ -369,7 +411,7 @@ export default function OrderDetails() {
                         value={form.courierName}
                         onChange={handleChange}
                         disabled={saving}
-                        required
+                        required={form.orderStatus === ORDER_STATUS.SHIPPED}
                         placeholder="e.g. TCS, Leopard"
                       />
                     </div>
@@ -382,7 +424,7 @@ export default function OrderDetails() {
                         value={form.trackingNumber}
                         onChange={handleChange}
                         disabled={saving}
-                        required
+                        required={form.orderStatus === ORDER_STATUS.SHIPPED}
                       />
                     </div>
                     <div className="admin-form-field">
