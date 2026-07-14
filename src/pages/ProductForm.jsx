@@ -5,6 +5,7 @@ import CustomizationOptionsSection from '../components/CustomizationOptionsSecti
 import { categoryApi, productApi, uploadApi } from '../services/api.js';
 import { getDefaultCustomizationOptions, mergeCustomizationOptions } from '../constants/customization.js';
 import { categoryNeedsRingSize } from '../utils/categories.js';
+import { optimizeImage } from '../utils/images.js';
 import {
   buildVariantCombinations,
   createDefaultVariationGroups,
@@ -16,7 +17,7 @@ import './Products.css';
 
 const MIN_PRODUCT_IMAGES = 8;
 const MAX_PRODUCT_IMAGES = 12;
-const UPLOAD_CHUNK_SIZE = 1;
+
 const MAX_SOURCE_IMAGE_BYTES = 15 * 1024 * 1024; // 15 MB
 
 const createDefaultForm = () => ({
@@ -43,8 +44,11 @@ const createDefaultForm = () => ({
 });
 
 const PendingImageStatus = {
-  IDLE: 'idle',
+  PENDING: 'pending',
+  OPTIMIZING: 'optimizing',
+  REQUESTING_URL: 'requesting_url',
   UPLOADING: 'uploading',
+  VERIFYING: 'verifying',
   SUCCESS: 'success',
   ERROR: 'error',
 };
@@ -84,7 +88,7 @@ export default function ProductForm() {
   const [form, setForm] = useState(createDefaultForm);
   const [categories, setCategories] = useState([]);
   const [imageUrls, setImageUrls] = useState([]);
-  const [pendingFiles, setPendingFiles] = useState([]); // Array of { file, key, previewUrl, status, error, url }
+  const [pendingFiles, setPendingFiles] = useState([]); // Array of { file, key, previewUrl, status, error, url, optimizedFile }
   const [manualImageUrls, setManualImageUrls] = useState('');
   const [videoUrl, setVideoUrl] = useState('');
   const [pendingVideoFile, setPendingVideoFile] = useState(null);
@@ -102,13 +106,33 @@ export default function ProductForm() {
   const [error, setError] = useState('');
   const [uploadError, setUploadError] = useState('');
   const pendingFilesRef = useRef(pendingFiles);
+  const isProcessingRef = useRef(false); // To prevent concurrent processing
+  const isMountedRef = useRef(true); // To prevent setState on unmounted component
   const imageInputRef = useRef(null);
   const videoInputRef = useRef(null);
   const sizeChartInputRef = useRef(null);
 
+  // Helper to check if any files are being processed
+  const isProcessing = useMemo(() => {
+    return pendingFiles.some(pf => 
+      pf.status !== PendingImageStatus.SUCCESS && 
+      pf.status !== PendingImageStatus.ERROR &&
+      pf.status !== PendingImageStatus.PENDING
+    );
+  }, [pendingFiles]);
+
   useEffect(() => {
     pendingFilesRef.current = pendingFiles;
   }, [pendingFiles]);
+
+  useEffect(() => {
+    isMountedRef.current = true;
+    return () => {
+      isMountedRef.current = false;
+    };
+  }, []);
+
+
 
   const buildSyncedVariants = (groups, currentVariants) =>
     mergeVariantsWithCombinations(buildVariantCombinations(groups), currentVariants, {
@@ -254,11 +278,13 @@ export default function ProductForm() {
 
     const nextFiles = files.slice(0, availableSlots).map((file) => ({
       file,
-      key: `${file.name}-${file.lastModified}-${file.size}`,
+      id: `${file.name}-${file.lastModified}-${file.size}-${Date.now()}`,
       previewUrl: URL.createObjectURL(file),
-      status: PendingImageStatus.IDLE,
+      status: PendingImageStatus.PENDING,
       error: null,
-      url: null,
+      publicUrl: null,
+      objectKey: null,
+      optimizedFile: null, // Store optimized file here for retries
     }));
 
     if (files.length > availableSlots) {
@@ -267,37 +293,130 @@ export default function ProductForm() {
       setUploadError('');
     }
 
-    setPendingFiles((current) => [...current, ...nextFiles]);
+    setPendingFiles((current) => {
+      const newPendingFiles = [...current, ...nextFiles];
+      setUploadProgress({ current: 0, total: newPendingFiles.length });
+      return newPendingFiles;
+    });
     event.target.value = '';
+    
+    // Trigger queue processing
+    setTimeout(() => {
+      processQueue();
+    }, 0);
   };
 
-  const handleRetryPendingFile = async (index) => {
-    const pendingFile = pendingFiles[index];
-    if (!pendingFile) return;
-
-    setPendingFiles((current) => 
-      current.map((pf, i) => 
-        i === index ? { ...pf, status: PendingImageStatus.UPLOADING, error: null } : pf
-      )
-    );
+  const processSingleImage = async (imageId) => {
+    const getItem = () => pendingFilesRef.current.find(f => f.id === imageId);
+    let item = getItem();
+    if (!item) return;
 
     try {
-      const response = await uploadApi.uploadProductImages([pendingFile.file]);
-      const url = response.data?.results?.[0]?.url;
-      if (url) {
-        setPendingFiles((current) => 
-          current.map((pf, i) => 
-            i === index ? { ...pf, status: PendingImageStatus.SUCCESS, url } : pf
-          )
-        );
+      // Step 1: Optimize
+      if (isMountedRef.current) {
+        setPendingFiles((prev) => prev.map(f => f.id === imageId ? { ...f, status: PendingImageStatus.OPTIMIZING } : f));
       }
-    } catch (error) {
-      setPendingFiles((current) => 
-        current.map((pf, i) => 
-          i === index ? { ...pf, status: PendingImageStatus.ERROR, error: error.message } : pf
-        )
-      );
+      
+      let optimizedFile = item.optimizedFile;
+      if (!optimizedFile) {
+        const optimizationResult = await optimizeImage(item.file);
+        optimizedFile = optimizationResult.file;
+        if (isMountedRef.current) {
+          setPendingFiles((prev) => prev.map(f => f.id === imageId ? { ...f, optimizedFile } : f));
+        }
+      }
+
+      // Step 2: Get presigned URL
+      if (isMountedRef.current) {
+        setPendingFiles((prev) => prev.map(f => f.id === imageId ? { ...f, status: PendingImageStatus.REQUESTING_URL } : f));
+      }
+      const presignResponse = await uploadApi.getProductImagePresignedUrl(optimizedFile.name, optimizedFile.size);
+      const { presignedUrl, publicUrl, objectKey } = presignResponse.data;
+
+      // Step 3: Upload to R2
+      if (isMountedRef.current) {
+        setPendingFiles((prev) => prev.map(f => f.id === imageId ? { ...f, status: PendingImageStatus.UPLOADING } : f));
+      }
+      const putResponse = await fetch(presignedUrl, {
+        method: 'PUT',
+        body: optimizedFile,
+        headers: {
+          'Content-Type': 'image/webp',
+        },
+      });
+
+      if (!putResponse.ok) {
+        throw new Error(`R2 PUT failed: ${putResponse.status} ${putResponse.statusText}`);
+      }
+
+      // Step 4: Verify upload
+      if (isMountedRef.current) {
+        setPendingFiles((prev) => prev.map(f => f.id === imageId ? { ...f, status: PendingImageStatus.VERIFYING } : f));
+      }
+      
+      console.log("[Upload verify request]", {
+        imageId,
+        objectKey,
+        expectedSize: optimizedFile.size
+      });
+      
+      const verifyResponse = await uploadApi.verifyProductImageUpload(objectKey, optimizedFile.size);
+      
+      console.log("[Upload verify response]", verifyResponse);
+
+      // Step 5: Success
+      if (isMountedRef.current) {
+        setPendingFiles((prev) => prev.map(f => f.id === imageId ? {
+          ...f,
+          status: PendingImageStatus.SUCCESS,
+          publicUrl,
+          objectKey,
+          optimizedFile: null,
+          progress: 100,
+          error: null
+        } : f));
+      }
+    } catch (err) {
+      if (isMountedRef.current) {
+        setPendingFiles((prev) => prev.map(f => f.id === imageId ? {
+          ...f,
+          status: PendingImageStatus.ERROR,
+          error: err.message || 'Upload failed'
+        } : f));
+      }
     }
+  };
+
+  const processQueue = async () => {
+    if (isProcessingRef.current) return;
+    isProcessingRef.current = true;
+
+    try {
+      while (isMountedRef.current) {
+        const pendingItem = pendingFilesRef.current.find(
+          item => item.status === PendingImageStatus.PENDING
+        );
+        if (!pendingItem) break;
+        
+        await processSingleImage(pendingItem.id);
+      }
+    } finally {
+      isProcessingRef.current = false;
+    }
+  };
+
+  const handleRetryPendingFile = async (imageId) => {
+    // Reset the status to pending
+    setPendingFiles((current) => 
+      current.map((item) => 
+        item.id === imageId ? { ...item, status: PendingImageStatus.PENDING, error: null } : item
+      )
+    );
+    
+    // Wait a tick for state update, then start processing
+    setTimeout(() => {
+      processQueue();
+    }, 0);
   };
 
   const handleRemoveUploadedImage = (index) => {
@@ -305,13 +424,13 @@ export default function ProductForm() {
     setUploadError('');
   };
 
-  const handleRemovePendingFile = (index) => {
+  const handleRemovePendingFile = (imageId) => {
     setPendingFiles((current) => {
-      const removed = current[index];
+      const removed = current.find(f => f.id === imageId);
       if (removed?.previewUrl) {
         URL.revokeObjectURL(removed.previewUrl);
       }
-      return current.filter((_, itemIndex) => itemIndex !== index);
+      return current.filter(f => f.id !== imageId);
     });
     setUploadError('');
   };
@@ -444,8 +563,15 @@ export default function ProductForm() {
   const handleSubmit = async (event) => {
     event.preventDefault();
     
+    const allPendingFilesSuccess = pendingFiles.every(pf => pf.status === PendingImageStatus.SUCCESS);
+    if (!allPendingFilesSuccess) {
+      setUploadError('Please wait for all images to upload successfully or resolve any errors before saving.');
+      return;
+    }
+
     // Check min images
-    if (totalSelectedImages < MIN_PRODUCT_IMAGES) {
+    const totalImages = imageUrls.length + pendingFiles.length + parseCommaList(manualImageUrls).length;
+    if (totalImages < MIN_PRODUCT_IMAGES) {
       setUploadError(`At least ${MIN_PRODUCT_IMAGES} product images are required`);
       return;
     }
@@ -454,44 +580,8 @@ export default function ProductForm() {
     setError('');
     setUploadError('');
 
-    // Upload pending files first
-    const filesToUpload = pendingFiles.filter(pf => pf.status !== PendingImageStatus.SUCCESS);
-    setUploadProgress({ current: 0, total: filesToUpload.length });
-
     try {
-      for (let i = 0; i < pendingFiles.length; i++) {
-        const pf = pendingFiles[i];
-        if (pf.status === PendingImageStatus.SUCCESS) continue;
-
-        setPendingFiles((current) => 
-          current.map((item, idx) => 
-            idx === i ? { ...item, status: PendingImageStatus.UPLOADING, error: null } : item
-          )
-        );
-
-        try {
-          const response = await uploadApi.uploadProductImages([pf.file]);
-          const url = response.data?.results?.[0]?.url;
-          if (url) {
-            setPendingFiles((current) => 
-              current.map((item, idx) => 
-                idx === i ? { ...item, status: PendingImageStatus.SUCCESS, url } : item
-              )
-            );
-          }
-        } catch (err) {
-          setPendingFiles((current) => 
-            current.map((item, idx) => 
-              idx === i ? { ...item, status: PendingImageStatus.ERROR, error: err.message } : item
-            )
-          );
-          throw new Error(`Failed to upload image ${i + 1}: ${err.message}`);
-        } finally {
-          setUploadProgress((prev) => ({ ...prev, current: prev.current + 1 }));
-        }
-      }
-
-      // Now proceed to upload other media and save product
+      // Now proceed to upload other media (video, size chart) and save product
       let nextImageUrls = [...imageUrls];
       let nextVideoUrl = videoUrl;
       let nextSizeChartUrl = sizeChartUrl;
@@ -499,7 +589,7 @@ export default function ProductForm() {
       // Add successfully uploaded pending files
       nextImageUrls = [
         ...nextImageUrls,
-        ...pendingFiles.filter(pf => pf.status === PendingImageStatus.SUCCESS).map(pf => pf.url)
+        ...pendingFiles.filter(pf => pf.status === PendingImageStatus.SUCCESS).map(pf => pf.publicUrl || pf.url)
       ];
 
       if (pendingVideoFile?.file) {
@@ -515,7 +605,7 @@ export default function ProductForm() {
       const manualUrls = parseCommaList(manualImageUrls);
       nextImageUrls = [...nextImageUrls, ...manualUrls].slice(0, MAX_PRODUCT_IMAGES);
 
-      // Check min images again (after uploads)
+      // Check min images again (after adding manual URLs)
       if (nextImageUrls.length < MIN_PRODUCT_IMAGES && form.status === 'active') {
         throw new Error(`At least ${MIN_PRODUCT_IMAGES} product images are required for active products`);
       }
@@ -621,9 +711,14 @@ export default function ProductForm() {
               <button
                 type="submit"
                 className="btn-primary"
-                disabled={saving || uploadProgress.total > 0 || categories.length === 0 || totalSelectedImages < MIN_PRODUCT_IMAGES}
+                disabled={
+                  saving || 
+                  categories.length === 0 || 
+                  totalSelectedImages < MIN_PRODUCT_IMAGES ||
+                  isProcessing
+                }
               >
-                {uploadProgress.total > 0 ? 'Uploading media...' : saving ? 'Saving...' : isEditing ? 'Update' : 'Create Product'}
+                {saving ? 'Saving...' : isEditing ? 'Update' : 'Create Product'}
               </button>
             </div>
           </div>
@@ -675,7 +770,11 @@ export default function ProductForm() {
                   multiple
                   className="image-upload-input-hidden"
                   onChange={handleImageFilesChange}
-                  disabled={saving || uploadProgress.total > 0 || totalSelectedImages >= MAX_PRODUCT_IMAGES}
+                  disabled={
+                    saving || 
+                    totalSelectedImages >= MAX_PRODUCT_IMAGES ||
+                    isProcessing
+                  }
                 />
                 <input
                   ref={videoInputRef}
@@ -683,7 +782,10 @@ export default function ProductForm() {
                   accept=".mp4,.webm,.mov,video/mp4,video/webm,video/quicktime"
                   className="image-upload-input-hidden"
                   onChange={handleVideoChange}
-                  disabled={saving || uploadProgress.total > 0}
+                  disabled={
+                    saving || 
+                    isProcessing
+                  }
                 />
 
                 <div className="product-media-grid">
@@ -691,7 +793,7 @@ export default function ProductForm() {
                     type="button"
                     className={`product-media-slot product-media-slot-main ${previewImage ? 'product-media-slot-filled' : ''}`}
                     onClick={() => imageInputRef.current?.click()}
-                    disabled={remainingImageSlots <= 0 || saving || uploadProgress.total > 0}
+                    disabled={remainingImageSlots <= 0 || saving || isProcessing}
                   >
                     {previewImage ? (
                       <img src={previewImage} alt="Main" />
@@ -709,7 +811,7 @@ export default function ProductForm() {
                       type="button"
                       className="product-media-slot"
                       onClick={() => imageInputRef.current?.click()}
-                      disabled={saving || uploadProgress.total > 0}
+                      disabled={saving}
                     >
                       <span className="product-media-slot-action">Upload image</span>
                     </button>
@@ -719,7 +821,7 @@ export default function ProductForm() {
                     type="button"
                     className={`product-media-slot product-media-slot-video ${videoUrl || pendingVideoFile ? 'product-media-slot-filled' : ''}`}
                     onClick={() => videoInputRef.current?.click()}
-                    disabled={saving || uploadProgress.total > 0}
+                    disabled={saving}
                   >
                     {pendingVideoFile?.previewUrl ? (
                       <video src={pendingVideoFile.previewUrl} muted playsInline />
@@ -743,7 +845,7 @@ export default function ProductForm() {
                       type="button"
                       className="btn-secondary image-upload-browse-btn"
                       onClick={() => imageInputRef.current?.click()}
-                      disabled={saving || uploadProgress.total > 0}
+                      disabled={saving}
                     >
                       Add Images
                     </button>
@@ -760,51 +862,65 @@ export default function ProductForm() {
                           type="button"
                           className="btn-text btn-text-danger"
                           onClick={() => handleRemoveUploadedImage(index)}
-                          disabled={saving}
+                          disabled={saving || isProcessing}
                         >
                           Remove
                         </button>
                       </div>
                     ))}
-                    {pendingFiles.map((item, index) => (
-                      <div key={item.key} className={`image-preview-card ${
-                        item.status === PendingImageStatus.UPLOADING ? 'image-preview-pending' : 
-                        item.status === PendingImageStatus.ERROR ? 'image-preview-error' : 
-                        item.status === PendingImageStatus.SUCCESS ? 'image-preview-success' : 
-                        'image-preview-pending'
-                      }`}>
-                        <img src={item.previewUrl} alt={item.file.name} className="image-preview" />
-                        <span className="image-preview-label">
-                          {item.status === PendingImageStatus.UPLOADING ? 'Uploading...' :
-                           item.status === PendingImageStatus.ERROR ? 'Upload failed' :
-                           item.status === PendingImageStatus.SUCCESS ? 'Uploaded' :
-                           'Pending upload'}
-                        </span>
+                    {pendingFiles.map((item) => (
+                    <div key={item.id} className={`image-preview-card ${
+                      item.status === PendingImageStatus.OPTIMIZING ||
+                      item.status === PendingImageStatus.REQUESTING_URL ||
+                      item.status === PendingImageStatus.UPLOADING ||
+                      item.status === PendingImageStatus.VERIFYING
+                        ? 'image-preview-pending'
+                        : item.status === PendingImageStatus.ERROR
+                        ? 'image-preview-error'
+                        : item.status === PendingImageStatus.SUCCESS
+                        ? 'image-preview-success'
+                        : ''
+                    }`}>
+                      <img src={item.previewUrl} alt={item.file.name} className="image-preview" />
+                      <span className="image-preview-label">
+                        {(() => {
+                          switch (item.status) {
+                            case PendingImageStatus.PENDING: return "PENDING...";
+                            case PendingImageStatus.OPTIMIZING: return "OPTIMIZING...";
+                            case PendingImageStatus.REQUESTING_URL: return "REQUESTING URL...";
+                            case PendingImageStatus.UPLOADING: return "UPLOADING...";
+                            case PendingImageStatus.VERIFYING: return "VERIFYING...";
+                            case PendingImageStatus.SUCCESS: return "UPLOADED";
+                            case PendingImageStatus.ERROR: return "FAILED";
+                            default: return "UNKNOWN STATUS";
+                          }
+                        })()}
+                      </span>
+                      {item.status === PendingImageStatus.ERROR && (
+                        <span className="text-xs text-red-500 mt-1">{item.error}</span>
+                      )}
+                      <div className="flex gap-2 mt-2">
                         {item.status === PendingImageStatus.ERROR && (
-                          <span className="text-xs text-red-500 mt-1">{item.error}</span>
-                        )}
-                        <div className="flex gap-2 mt-2">
-                          {item.status === PendingImageStatus.ERROR && (
-                            <button
-                              type="button"
-                              className="btn-text btn-text-primary"
-                              onClick={() => handleRetryPendingFile(index)}
-                              disabled={saving}
-                            >
-                              Retry
-                            </button>
-                          )}
                           <button
                             type="button"
-                            className="btn-text btn-text-danger"
-                            onClick={() => handleRemovePendingFile(index)}
-                            disabled={saving}
+                            className="btn-text btn-text-primary"
+                            onClick={() => handleRetryPendingFile(item.id)}
+                            disabled={saving || isProcessing}
                           >
-                            Remove
+                            Retry
                           </button>
-                        </div>
+                        )}
+                        <button
+                          type="button"
+                          className="btn-text btn-text-danger"
+                          onClick={() => handleRemovePendingFile(item.id)}
+                          disabled={saving || isProcessing}
+                        >
+                          Remove
+                        </button>
                       </div>
-                    ))}
+                    </div>
+                  ))}
                   </div>
                 )}
 
@@ -834,7 +950,7 @@ export default function ProductForm() {
                       setManualImageUrls(event.target.value);
                       setUploadError('');
                     }}
-                    disabled={saving || uploadProgress.total > 0}
+                    disabled={saving}
                     placeholder="Comma-separated image URLs"
                   />
                 </div>
@@ -852,7 +968,7 @@ export default function ProductForm() {
                       value={form.title}
                       onChange={handleChange}
                       required
-                      disabled={saving || uploadProgress.total > 0}
+                      disabled={saving}
                     />
                   </div>
 
@@ -864,7 +980,7 @@ export default function ProductForm() {
                       value={form.category}
                       onChange={handleChange}
                       required
-                      disabled={saving || uploadProgress.total > 0 || categories.length === 0}
+                      disabled={saving || categories.length === 0}
                     >
                       <option value="">Select category</option>
                       {categories.map((category) => (
@@ -883,7 +999,7 @@ export default function ProductForm() {
                       type="text"
                       value={form.brand}
                       onChange={handleChange}
-                      disabled={saving || uploadProgress.total > 0}
+                      disabled={saving}
                       placeholder="No brand"
                     />
                   </div>
@@ -896,7 +1012,7 @@ export default function ProductForm() {
                       type="text"
                       value={form.slug}
                       onChange={handleChange}
-                      disabled={saving || uploadProgress.total > 0}
+                      disabled={saving}
                       placeholder="Auto-generated from title if empty"
                     />
                   </div>
@@ -908,7 +1024,7 @@ export default function ProductForm() {
                       name="status"
                       value={form.status}
                       onChange={handleChange}
-                      disabled={saving || uploadProgress.total > 0}
+                      disabled={saving}
                     >
                       <option value="draft">Draft</option>
                       <option value="active">Active</option>
@@ -924,7 +1040,7 @@ export default function ProductForm() {
                       type="text"
                       value={form.shortDescription}
                       onChange={handleChange}
-                      disabled={saving || uploadProgress.total > 0}
+                      disabled={saving}
                     />
                   </div>
 
@@ -935,7 +1051,7 @@ export default function ProductForm() {
                       name="description"
                       value={form.description}
                       onChange={handleChange}
-                      disabled={saving || uploadProgress.total > 0}
+                      disabled={saving}
                       rows={6}
                     />
                   </div>
@@ -948,7 +1064,7 @@ export default function ProductForm() {
                       type="text"
                       value={form.material}
                       onChange={handleChange}
-                      disabled={saving || uploadProgress.total > 0}
+                      disabled={saving}
                       placeholder="18K Gold"
                     />
                   </div>
@@ -961,7 +1077,7 @@ export default function ProductForm() {
                       type="text"
                       value={form.tags}
                       onChange={handleChange}
-                      disabled={saving || uploadProgress.total > 0}
+                      disabled={saving}
                       placeholder="ring, diamond, wedding"
                     />
                   </div>
@@ -982,7 +1098,7 @@ export default function ProductForm() {
                       value={form.price}
                       onChange={handleChange}
                       required
-                      disabled={saving || uploadProgress.total > 0}
+                      disabled={saving}
                     />
                   </div>
 
@@ -996,7 +1112,7 @@ export default function ProductForm() {
                       step="0.01"
                       value={form.oldPrice}
                       onChange={handleChange}
-                      disabled={saving || uploadProgress.total > 0}
+                      disabled={saving}
                     />
                   </div>
 
@@ -1009,7 +1125,7 @@ export default function ProductForm() {
                       value={form.sku}
                       onChange={handleChange}
                       required
-                      disabled={saving || uploadProgress.total > 0}
+                      disabled={saving}
                     />
                   </div>
 
@@ -1022,7 +1138,7 @@ export default function ProductForm() {
                       min="0"
                       value={form.stock}
                       onChange={handleChange}
-                      disabled={saving || uploadProgress.total > 0}
+                      disabled={saving}
                     />
                   </div>
                 </div>
@@ -1034,7 +1150,7 @@ export default function ProductForm() {
                       name="isFeatured"
                       checked={form.isFeatured}
                       onChange={handleChange}
-                      disabled={saving || uploadProgress.total > 0}
+                      disabled={saving}
                     />
                     Featured (Bundles)
                   </label>
@@ -1044,7 +1160,7 @@ export default function ProductForm() {
                       name="isTrending"
                       checked={form.isTrending}
                       onChange={handleChange}
-                      disabled={saving || uploadProgress.total > 0}
+                      disabled={saving}
                     />
                     Trending
                   </label>
@@ -1054,7 +1170,7 @@ export default function ProductForm() {
                       name="isNewArrival"
                       checked={form.isNewArrival}
                       onChange={handleChange}
-                      disabled={saving || uploadProgress.total > 0}
+                      disabled={saving}
                     />
                     New Arrival
                   </label>
@@ -1064,7 +1180,7 @@ export default function ProductForm() {
                       name="isCustomizable"
                       checked={form.isCustomizable}
                       onChange={handleChange}
-                      disabled={saving || uploadProgress.total > 0}
+                      disabled={saving}
                     />
                     Customizable Product
                   </label>
@@ -1092,7 +1208,7 @@ export default function ProductForm() {
                           );
                         }
                       }}
-                      disabled={saving || uploadProgress.total > 0}
+                      disabled={saving}
                     />
                     <span>Add variations</span>
                   </label>
@@ -1110,7 +1226,7 @@ export default function ProductForm() {
                               value={group.name}
                               onChange={(event) => updateVariationGroupName(groupIndex, event.target.value)}
                               placeholder="Color, Ring Size..."
-                              disabled={saving || uploadProgress.total > 0}
+                              disabled={saving || isProcessing}
                             />
                           </div>
                           {variationGroups.length > 1 && (
@@ -1118,7 +1234,7 @@ export default function ProductForm() {
                               type="button"
                               className="btn-text btn-text-danger"
                               onClick={() => removeVariationGroup(groupIndex)}
-                              disabled={saving || uploadProgress.total > 0}
+                              disabled={saving || isProcessing}
                             >
                               Remove group
                             </button>
@@ -1135,13 +1251,13 @@ export default function ProductForm() {
                                   updateVariationOption(groupIndex, optionIndex, event.target.value)
                                 }
                                 placeholder="Option value"
-                                disabled={saving || uploadProgress.total > 0}
+                                disabled={saving || isProcessing}
                               />
                               <button
                                 type="button"
                                 className="btn-text btn-text-danger"
                                 onClick={() => removeVariationOption(groupIndex, optionIndex)}
-                                disabled={saving || uploadProgress.total > 0}
+                                disabled={saving || isProcessing}
                               >
                                 Delete
                               </button>
@@ -1151,7 +1267,7 @@ export default function ProductForm() {
                             type="button"
                             className="btn-text"
                             onClick={() => addVariationOption(groupIndex)}
-                            disabled={saving || uploadProgress.total > 0}
+                            disabled={saving || isProcessing}
                           >
                             + Add option
                           </button>
@@ -1163,7 +1279,7 @@ export default function ProductForm() {
                       type="button"
                       className="btn-secondary variation-add-group-btn"
                       onClick={addVariationGroup}
-                      disabled={saving || uploadProgress.total > 0}
+                      disabled={saving}
                     >
                       + Add variation
                     </button>
@@ -1177,7 +1293,7 @@ export default function ProductForm() {
                             placeholder="Batch stock"
                             value={batchStock}
                             onChange={(event) => setBatchStock(event.target.value)}
-                            disabled={saving || uploadProgress.total > 0}
+                            disabled={saving || isProcessing}
                           />
                           <input
                             type="number"
@@ -1186,13 +1302,13 @@ export default function ProductForm() {
                             placeholder="Batch price"
                             value={batchPrice}
                             onChange={(event) => setBatchPrice(event.target.value)}
-                            disabled={saving || uploadProgress.total > 0}
+                            disabled={saving || isProcessing}
                           />
                           <button
                             type="button"
                             className="btn-secondary"
                             onClick={applyBatchVariantValues}
-                            disabled={saving || uploadProgress.total > 0}
+                            disabled={saving || isProcessing}
                           >
                             Apply
                           </button>
@@ -1225,7 +1341,7 @@ export default function ProductForm() {
                                     onChange={(event) =>
                                       updateVariantField(index, 'stock', event.target.value)
                                     }
-                                    disabled={saving || uploadProgress.total > 0}
+                                    disabled={saving || isProcessing}
                                   />
                                 </td>
                                 <td>
@@ -1237,7 +1353,7 @@ export default function ProductForm() {
                                     onChange={(event) =>
                                       updateVariantField(index, 'price', event.target.value)
                                     }
-                                    disabled={saving || uploadProgress.total > 0}
+                                    disabled={saving || isProcessing}
                                   />
                                 </td>
                                 <td>
@@ -1247,7 +1363,7 @@ export default function ProductForm() {
                                     onChange={(event) =>
                                       updateVariantField(index, 'sku', event.target.value)
                                     }
-                                    disabled={saving || uploadProgress.total > 0}
+                                    disabled={saving || isProcessing}
                                   />
                                 </td>
                               </tr>
@@ -1268,7 +1384,7 @@ export default function ProductForm() {
                           type="text"
                           value={form.ringSizes}
                           onChange={handleChange}
-                          disabled={saving || uploadProgress.total > 0}
+                          disabled={saving || isProcessing}
                           placeholder="6, 7, 8"
                         />
                       </div>
@@ -1281,7 +1397,7 @@ export default function ProductForm() {
                         type="text"
                         value={form.metalColors}
                         onChange={handleChange}
-                        disabled={saving || uploadProgress.total > 0}
+                        disabled={saving}
                         placeholder="gold, rose-gold, silver"
                       />
                     </div>
@@ -1302,7 +1418,7 @@ export default function ProductForm() {
                       type="checkbox"
                       checked={sizeChartEnabled}
                       onChange={(event) => setSizeChartEnabled(event.target.checked)}
-                      disabled={saving || uploadProgress.total > 0}
+                      disabled={saving}
                     />
                     <span>Enable size chart</span>
                   </label>
@@ -1316,14 +1432,14 @@ export default function ProductForm() {
                       accept=".jpg,.jpeg,.png,.webp,image/jpeg,image/png,image/webp"
                       className="image-upload-input-hidden"
                       onChange={handleSizeChartChange}
-                      disabled={saving || uploadProgress.total > 0}
+                      disabled={saving}
                     />
                     <div className="size-chart-upload-row">
                       <button
                         type="button"
                         className="btn-secondary"
                         onClick={() => sizeChartInputRef.current?.click()}
-                        disabled={saving || uploadProgress.total > 0}
+                        disabled={saving}
                       >
                         Upload size chart image
                       </button>
@@ -1346,7 +1462,7 @@ export default function ProductForm() {
                     onChange={(nextOptions) =>
                       setForm((prev) => ({ ...prev, customizationOptions: nextOptions }))
                     }
-                    disabled={saving || uploadProgress.total > 0}
+                    disabled={saving}
                   />
                 </section>
               )}

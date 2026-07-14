@@ -1,0 +1,30 @@
+export const ORDER_STATUS = {
+  PENDING: 'pending',
+  CONFIRMED: 'confirmed',
+  PROCESSING: 'processing',
+  SHIPPED: 'shipped',
+  DELIVERED: 'delivered',
+  CANCELLED: 'cancelled',
+};
+
+export const ORDER_STATUS_TRANSITIONS = {
+  [ORDER_STATUS.PENDING]: [ORDER_STATUS.CONFIRMED, ORDER_STATUS.CANCELLED],
+  [ORDER_STATUS.CONFIRMED]: [ORDER_STATUS.PROCESSING, ORDER_STATUS.CANCELLED],
+  [ORDER_STATUS.PROCESSING]: [ORDER_STATUS.SHIPPED, ORDER_STATUS.CANCELLED],
+  [ORDER_STATUS.SHIPPED]: [ORDER_STATUS.DELIVERED],
+  [ORDER_STATUS.DELIVERED]: [],
+  [ORDER_STATUS.CANCELLED]: [],
+};
+
+export const getAvailableNextStatuses = (currentStatus) => {
+  return ORDER_STATUS_TRANSITIONS[currentStatus] || [];
+};
+
+export const ORDER_STATUS_LABELS = {
+  [ORDER_STATUS.PENDING]: 'Pending',
+  [ORDER_STATUS.CONFIRMED]: 'Confirmed',
+  [ORDER_STATUS.PROCESSING]: 'Processing',
+  [ORDER_STATUS.SHIPPED]: 'Shipped',
+  [ORDER_STATUS.DELIVERED]: 'Delivered',
+  [ORDER_STATUS.CANCELLED]: 'Cancelled',
+};

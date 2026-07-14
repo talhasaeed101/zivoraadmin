@@ -104,7 +104,12 @@ export const optimizeImage = async (file, options = {}) => {
     optimizedHeight = null;
   }
 
-  // 7. Verify MIME type is webp
+  // 7. Ensure file has .webp extension
+  const originalName = file.name.replace(/\.[^/.]+$/, '');
+  const webpFileName = `${originalName}.webp`;
+  const webpFile = new File([compressedFile], webpFileName, { type: 'image/webp' });
+
+  // 8. Verify MIME type is webp
   if (import.meta.env.DEV) {
     console.log('[Image Optimization] Original image:', {
       ...originalDetails,
@@ -112,23 +117,23 @@ export const optimizeImage = async (file, options = {}) => {
       height: originalHeight,
     });
     console.log('[Image Optimization] Optimized image:', {
-      name: compressedFile.name,
-      size: compressedFile.size,
-      type: compressedFile.type,
+      name: webpFile.name,
+      size: webpFile.size,
+      type: webpFile.type,
       width: optimizedWidth,
       height: optimizedHeight,
-      compressionRatio: ((1 - compressedFile.size / file.size) * 100).toFixed(1) + '%',
+      compressionRatio: ((1 - webpFile.size / file.size) * 100).toFixed(1) + '%',
     });
   }
 
   return {
-    file: compressedFile,
+    file: webpFile,
     originalWidth,
     originalHeight,
     optimizedWidth,
     optimizedHeight,
     originalSize: file.size,
-    optimizedSize: compressedFile.size,
+    optimizedSize: webpFile.size,
   };
 };
 

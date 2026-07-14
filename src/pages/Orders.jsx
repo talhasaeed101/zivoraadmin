@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react';
 import { Link } from 'react-router-dom';
 import AdminLayout from '../components/AdminLayout.jsx';
 import { orderApi } from '../services/api.js';
+import { ORDER_STATUS_LABELS } from '../constants/orderConstants.js';
 import './Orders.css';
 
 const formatPrice = (value) => {
@@ -199,10 +200,10 @@ export default function Orders() {
                       </td>
                       <td>
                         <span className={`status-badge status-badge-${order.orderStatus}`}>
-                          {order.orderStatus}
+                          {ORDER_STATUS_LABELS[order.orderStatus] || order.orderStatus}
                         </span>
                       </td>
-                      <td>{formatDate(order.createdAt)}</td>
+                      <td>{formatDate(order.statusHistory?.[order.statusHistory.length - 1]?.changedAt || order.updatedAt)}</td>
                       <td>
                         <Link to={`/orders/${order._id}`} className="btn-text">
                           View

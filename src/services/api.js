@@ -253,10 +253,20 @@ export const newsletterApi = {
 };
 
 export const uploadApi = {
-  getProductImagePresignedUrl: async (filename, contentType, fileSize) => {
+  getProductImagePresignedUrl: async (filename, fileSize) => {
     return request('/uploads/product-images/presigned-url', {
       method: 'POST',
-      body: JSON.stringify({ filename, contentType, fileSize }),
+      body: JSON.stringify({ filename, fileSize }),
+      headers: {
+        'Content-Type': 'application/json',
+      },
+    });
+  },
+
+  verifyProductImageUpload: async (objectKey, expectedSize) => {
+    return request('/uploads/product-images/verify', {
+      method: 'POST',
+      body: JSON.stringify({ objectKey, expectedSize }),
       headers: {
         'Content-Type': 'application/json',
       },
@@ -288,19 +298,21 @@ export const uploadApi = {
         // Step 2: Get presigned URL from backend
         const presignedResponse = await uploadApi.getProductImagePresignedUrl(
           optimizedFile.name,
-          optimizedFile.type,
           optimizedFile.size
         );
-        const { presignedUrl, publicUrl } = presignedResponse.data;
+        const { presignedUrl, publicUrl, objectKey } = presignedResponse.data;
 
         // Step 3: Upload directly to R2
         await fetch(presignedUrl, {
           method: 'PUT',
           body: optimizedFile,
           headers: {
-            'Content-Type': optimizedFile.type,
+            'Content-Type': 'image/webp',
           },
         });
+
+        // Step 4: Verify upload with backend
+        await uploadApi.verifyProductImageUpload(objectKey, optimizedFile.size);
 
         results.push({ file, url: publicUrl, success: true });
         onSuccess?.(i, publicUrl);

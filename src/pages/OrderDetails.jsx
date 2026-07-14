@@ -3,6 +3,7 @@ import { Link, useParams } from 'react-router-dom';
 import AdminLayout from '../components/AdminLayout.jsx';
 import { orderApi } from '../services/api.js';
 import { buildCustomizationSummaryLines } from '../utils/customizationSummary.js';
+import { ORDER_STATUS, ORDER_STATUS_LABELS, getAvailableNextStatuses } from '../constants/orderConstants.js';
 import './Orders.css';
 
 const formatPrice = (value) => {
@@ -60,6 +61,11 @@ export default function OrderDetails() {
     orderStatus: 'pending',
     paymentStatus: 'pending',
     notes: '',
+    isCustomerVisible: false,
+    trackingNumber: '',
+    courierName: '',
+    trackingUrl: '',
+    estimatedDeliveryDate: '',
   });
 
   useEffect(() => {
@@ -79,7 +85,12 @@ export default function OrderDetails() {
           setForm({
             orderStatus: orderData.orderStatus || 'pending',
             paymentStatus: orderData.paymentStatus || 'pending',
-            notes: orderData.notes || '',
+            notes: '',
+            isCustomerVisible: false,
+            trackingNumber: '',
+            courierName: '',
+            trackingUrl: '',
+            estimatedDeliveryDate: '',
           });
         }
       } catch (err) {
@@ -102,8 +113,8 @@ export default function OrderDetails() {
   }, [id]);
 
   const handleChange = (event) => {
-    const { name, value } = event.target;
-    setForm((prev) => ({ ...prev, [name]: value }));
+    const { name, value, type, checked } = event.target;
+    setForm((prev) => ({ ...prev, [name]: type === 'checkbox' ? checked : value }));
   };
 
   const handleSubmit = async (event) => {
@@ -113,18 +124,36 @@ export default function OrderDetails() {
     setSuccessMessage('');
 
     try {
-      const response = await orderApi.updateOrderStatus(id, {
-        orderStatus: form.orderStatus,
+      const payload = {
         paymentStatus: form.paymentStatus,
-        notes: form.notes.trim(),
-      });
+        notes: form.notes.trim() || undefined,
+      };
+
+      if (form.orderStatus !== order.orderStatus) {
+        payload.orderStatus = form.orderStatus;
+        payload.isCustomerVisible = form.isCustomerVisible;
+        
+        if (form.orderStatus === ORDER_STATUS.SHIPPED) {
+          payload.trackingNumber = form.trackingNumber;
+          payload.courierName = form.courierName;
+          payload.trackingUrl = form.trackingUrl;
+          payload.estimatedDeliveryDate = form.estimatedDeliveryDate;
+        }
+      }
+
+      const response = await orderApi.updateOrderStatus(id, payload);
 
       const updatedOrder = response.data;
       setOrder(updatedOrder);
       setForm({
         orderStatus: updatedOrder.orderStatus || 'pending',
         paymentStatus: updatedOrder.paymentStatus || 'pending',
-        notes: updatedOrder.notes || '',
+        notes: '',
+        isCustomerVisible: false,
+        trackingNumber: '',
+        courierName: '',
+        trackingUrl: '',
+        estimatedDeliveryDate: '',
       });
       setSuccessMessage('Order updated successfully.');
     } catch (err) {
@@ -284,6 +313,29 @@ export default function OrderDetails() {
               </div>
             </section>
 
+            {order.statusHistory && order.statusHistory.length > 0 && (
+              <section className="order-detail-card order-detail-card-full">
+                <h3 className="order-detail-heading">Status History</h3>
+                <div className="status-timeline" style={{ display: 'flex', flexDirection: 'column', gap: '1rem', marginTop: '1rem' }}>
+                  {order.statusHistory.map((entry, idx) => (
+                    <div key={idx} className="timeline-item" style={{ padding: '1rem', border: '1px solid #e5e7eb', borderRadius: '0.5rem', background: '#f9fafb' }}>
+                      <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '0.5rem' }}>
+                        <strong style={{ color: '#111827' }}>{entry.label}</strong>
+                        <span style={{ color: '#6b7280', fontSize: '0.875rem' }}>{formatDate(entry.changedAt)}</span>
+                      </div>
+                      <div style={{ color: '#4b5563', fontSize: '0.875rem', marginBottom: '0.25rem' }}>Updated by: {entry.changedBy}</div>
+                      {entry.note && (
+                        <div style={{ marginTop: '0.5rem', padding: '0.75rem', background: '#fff', borderLeft: '4px solid #967259', color: '#374151' }}>
+                          {entry.note}
+                          {entry.isCustomerVisible && <span style={{ marginLeft: '0.5rem', fontSize: '0.75rem', color: '#059669', background: '#d1fae5', padding: '0.125rem 0.375rem', borderRadius: '9999px' }}>Customer Visible</span>}
+                        </div>
+                      )}
+                    </div>
+                  ))}
+                </div>
+              </section>
+            )}
+
             <form className="admin-form-card order-status-form" onSubmit={handleSubmit}>
               <h3 className="order-detail-heading">Update Order</h3>
 
@@ -297,14 +349,67 @@ export default function OrderDetails() {
                     onChange={handleChange}
                     disabled={saving}
                   >
-                    <option value="pending">Pending</option>
-                    <option value="confirmed">Confirmed</option>
-                    <option value="processing">Processing</option>
-                    <option value="shipped">Shipped</option>
-                    <option value="delivered">Delivered</option>
-                    <option value="cancelled">Cancelled</option>
+                    <option value={order.orderStatus}>{ORDER_STATUS_LABELS[order.orderStatus]} (Current)</option>
+                    {getAvailableNextStatuses(order.orderStatus).map((status) => (
+                      <option key={status} value={status}>
+                        {ORDER_STATUS_LABELS[status]}
+                      </option>
+                    ))}
                   </select>
                 </div>
+
+                {form.orderStatus === ORDER_STATUS.SHIPPED && (
+                  <>
+                    <div className="admin-form-field">
+                      <label htmlFor="courierName">Courier Name *</label>
+                      <input
+                        id="courierName"
+                        name="courierName"
+                        type="text"
+                        value={form.courierName}
+                        onChange={handleChange}
+                        disabled={saving}
+                        required
+                        placeholder="e.g. TCS, Leopard"
+                      />
+                    </div>
+                    <div className="admin-form-field">
+                      <label htmlFor="trackingNumber">Tracking Number *</label>
+                      <input
+                        id="trackingNumber"
+                        name="trackingNumber"
+                        type="text"
+                        value={form.trackingNumber}
+                        onChange={handleChange}
+                        disabled={saving}
+                        required
+                      />
+                    </div>
+                    <div className="admin-form-field">
+                      <label htmlFor="trackingUrl">Tracking URL</label>
+                      <input
+                        id="trackingUrl"
+                        name="trackingUrl"
+                        type="url"
+                        value={form.trackingUrl}
+                        onChange={handleChange}
+                        disabled={saving}
+                        placeholder="https://..."
+                      />
+                    </div>
+                    <div className="admin-form-field">
+                      <label htmlFor="estimatedDeliveryDate">Estimated Delivery</label>
+                      <input
+                        id="estimatedDeliveryDate"
+                        name="estimatedDeliveryDate"
+                        type="date"
+                        value={form.estimatedDeliveryDate}
+                        onChange={handleChange}
+                        disabled={saving}
+                      />
+                    </div>
+                  </>
+                )}
 
                 <div className="admin-form-field">
                   <label htmlFor="paymentStatus">Payment Status</label>
@@ -328,12 +433,24 @@ export default function OrderDetails() {
                   <textarea
                     id="notes"
                     name="notes"
-                    rows={4}
+                    rows={3}
                     value={form.notes}
                     onChange={handleChange}
                     disabled={saving}
-                    placeholder="Internal notes about this order..."
+                    placeholder="Add a note for this update..."
                   />
+                  {form.orderStatus !== order.orderStatus && (
+                    <label className="mt-2" style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', cursor: 'pointer' }}>
+                      <input
+                        type="checkbox"
+                        name="isCustomerVisible"
+                        checked={form.isCustomerVisible}
+                        onChange={handleChange}
+                        disabled={saving}
+                      />
+                      <span style={{ fontSize: '0.875rem', color: '#4b5563' }}>Make note visible to customer</span>
+                    </label>
+                  )}
                 </div>
               </div>
 
