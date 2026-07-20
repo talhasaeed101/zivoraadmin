@@ -20,6 +20,7 @@ export default function Messages() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
   const [selectedTicket, setSelectedTicket] = useState(null);
+  const [detailLoading, setDetailLoading] = useState(false);
   const [filters, setFilters] = useState({ status: '', priority: '', category: '', search: '' });
   const [reply, setReply] = useState('');
   const [replyStatus, setReplyStatus] = useState('');
@@ -43,14 +44,19 @@ export default function Messages() {
   }, [filters]);
 
   const loadTicket = async (id) => {
+    setDetailLoading(true);
+    setSelectedTicket(null);
     try {
       const response = await ticketApi.getTicket(id);
-      setSelectedTicket(response.data);
+      const ticket = response.data;
+      setSelectedTicket(ticket);
       setReply('');
-      setReplyStatus(response.data.status);
-      setReplyPriority(response.data.priority);
+      setReplyStatus(ticket.status);
+      setReplyPriority(ticket.priority);
     } catch (err) {
       console.error('Failed to load ticket:', err);
+    } finally {
+      setDetailLoading(false);
     }
   };
 
@@ -161,7 +167,61 @@ export default function Messages() {
 
           {/* Ticket Detail */}
           <div className="ticket-detail-panel">
-            {selectedTicket ? (
+            {detailLoading ? (
+              <div className="ticket-detail-shimmer">
+                {/* Header shimmer */}
+                <div className="shimmer-header">
+                  <div className="shimmer-line shimmer-title"></div>
+                  <div className="shimmer-meta-row">
+                    <div className="shimmer-chip"></div>
+                    <div className="shimmer-chip shimmer-chip--wide"></div>
+                    <div className="shimmer-chip"></div>
+                    <div className="shimmer-chip shimmer-chip--narrow"></div>
+                  </div>
+                </div>
+
+                {/* Message bubbles shimmer */}
+                <div className="shimmer-messages">
+                  <div className="shimmer-message shimmer-message--customer">
+                    <div className="shimmer-msg-header">
+                      <div className="shimmer-line shimmer-sender"></div>
+                      <div className="shimmer-line shimmer-date"></div>
+                    </div>
+                    <div className="shimmer-line shimmer-text shimmer-text--full"></div>
+                    <div className="shimmer-line shimmer-text shimmer-text--wide"></div>
+                    <div className="shimmer-line shimmer-text shimmer-text--narrow"></div>
+                  </div>
+
+                  <div className="shimmer-message shimmer-message--admin">
+                    <div className="shimmer-msg-header">
+                      <div className="shimmer-line shimmer-sender"></div>
+                      <div className="shimmer-line shimmer-date"></div>
+                    </div>
+                    <div className="shimmer-line shimmer-text shimmer-text--full"></div>
+                    <div className="shimmer-line shimmer-text shimmer-text--wide"></div>
+                  </div>
+
+                  <div className="shimmer-message shimmer-message--customer">
+                    <div className="shimmer-msg-header">
+                      <div className="shimmer-line shimmer-sender"></div>
+                      <div className="shimmer-line shimmer-date"></div>
+                    </div>
+                    <div className="shimmer-line shimmer-text shimmer-text--full"></div>
+                    <div className="shimmer-line shimmer-text shimmer-text--narrow"></div>
+                  </div>
+                </div>
+
+                {/* Reply form shimmer */}
+                <div className="shimmer-reply">
+                  <div className="shimmer-reply-selects">
+                    <div className="shimmer-select"></div>
+                    <div className="shimmer-select"></div>
+                  </div>
+                  <div className="shimmer-textarea"></div>
+                  <div className="shimmer-button"></div>
+                </div>
+              </div>
+            ) : selectedTicket ? (
               <>
                 <div className="ticket-detail-header">
                   <div>
@@ -172,14 +232,14 @@ export default function Messages() {
                       {selectedTicket.order?.orderNumber && (
                         <span>Order: {selectedTicket.order.orderNumber}</span>
                       )}
-                      <span>Category: {selectedTicket.category.replace('_', ' ')}</span>
+                      <span>Category: {selectedTicket.category?.replace(/_/g, ' ')}</span>
                       <span>Created: {formatDate(selectedTicket.createdAt)}</span>
                     </div>
                   </div>
                 </div>
 
                 <div className="ticket-messages">
-                  {selectedTicket.messages.map((msg, idx) => (
+                  {(selectedTicket.messages || []).map((msg, idx) => (
                     <div
                       key={idx}
                       className={`ticket-message ${msg.messageSenderModel === 'Admin' ? 'admin-message' : 'customer-message'}`}
@@ -191,7 +251,7 @@ export default function Messages() {
                         <span className="ticket-message-date">{formatDate(msg.createdAt)}</span>
                       </div>
                       <div className="ticket-message-content">
-                        {msg.message.split('\n').map((line, i) => (
+                        {(msg.message || '').split('\n').map((line, i) => (
                           <p key={i}>{line}</p>
                         ))}
                       </div>
@@ -209,7 +269,7 @@ export default function Messages() {
                           className="reply-select"
                         >
                           {TICKET_STATUSES.map(status => (
-                            <option key={status} value={status}>{status.replace('_', ' ')}</option>
+                            <option key={status} value={status}>{status.replace(/_/g, ' ')}</option>
                           ))}
                         </select>
                         <select

@@ -1,3 +1,104 @@
+/* ─── Shimmer animation ─────────────────────────────────────────────────── */
+@keyframes shimmer {
+  0%   { background-position: -600px 0; }
+  100% { background-position: 600px 0; }
+}
+
+.shimmer-line,
+.shimmer-chip,
+.shimmer-select,
+.shimmer-textarea,
+.shimmer-button {
+  background: linear-gradient(90deg, #ede8e2 25%, #f7f4f0 50%, #ede8e2 75%);
+  background-size: 1200px 100%;
+  animation: shimmer 1.4s infinite linear;
+  border-radius: 6px;
+}
+
+/* Detail shimmer wrapper */
+.ticket-detail-shimmer {
+  display: flex;
+  flex-direction: column;
+  gap: 24px;
+  padding: 4px 0;
+}
+
+/* Header block */
+.shimmer-header {
+  padding-bottom: 24px;
+  border-bottom: 1px solid #e8dfd4;
+}
+
+.shimmer-title {
+  height: 28px;
+  width: 55%;
+  margin-bottom: 16px;
+}
+
+.shimmer-meta-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+}
+
+.shimmer-chip        { height: 18px; width: 110px; border-radius: 20px; }
+.shimmer-chip--wide  { width: 160px; }
+.shimmer-chip--narrow { width: 80px; }
+
+/* Message bubbles */
+.shimmer-messages {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+
+.shimmer-message {
+  padding: 16px;
+  border-radius: 8px;
+}
+
+.shimmer-message--customer {
+  background-color: #f9f7f4;
+}
+
+.shimmer-message--admin {
+  background-color: #fff;
+  border-left: 3px solid #e8dfd4;
+}
+
+.shimmer-msg-header {
+  display: flex;
+  justify-content: space-between;
+  margin-bottom: 14px;
+}
+
+.shimmer-sender { height: 14px; width: 90px; }
+.shimmer-date   { height: 12px; width: 120px; }
+
+.shimmer-text          { height: 13px; margin-bottom: 8px; }
+.shimmer-text--full    { width: 100%; }
+.shimmer-text--wide    { width: 75%; }
+.shimmer-text--narrow  { width: 45%; margin-bottom: 0; }
+
+/* Reply form skeleton */
+.shimmer-reply {
+  margin-top: auto;
+  padding-top: 24px;
+  border-top: 1px solid #e8dfd4;
+}
+
+.shimmer-reply-selects {
+  display: flex;
+  gap: 12px;
+  margin-bottom: 12px;
+}
+
+.shimmer-select  { flex: 1; height: 40px; }
+.shimmer-textarea { width: 100%; height: 100px; margin-bottom: 12px; }
+.shimmer-button  { width: 120px; height: 38px; }
+
+/* ─── End shimmer ───────────────────────────────────────────────────────── */
+
 .tickets-admin-page {
   width: 100%;
   height: 100%;
