@@ -8,6 +8,7 @@ const AuthContext = createContext(null);
 const getStoredAdmin = () => {
   try {
     const raw = localStorage.getItem(ADMIN_KEY);
+
     return raw ? JSON.parse(raw) : null;
   } catch {
     return null;
@@ -42,7 +43,7 @@ export function AuthProvider({ children }) {
     setStoredAdmin(adminData);
     setToken(authToken);
     setAdmin(adminData);
-
+    console.log("dsssss")
     return adminData;
   }, []);
 
