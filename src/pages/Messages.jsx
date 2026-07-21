@@ -1,31 +1,13 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import AdminLayout from '../components/AdminLayout.jsx';
-import { ticketApi } from '../services/api.js';
+import { contactApi } from '../services/api.js';
 import './Orders.css';
 import './Messages.css';
 
-const TICKET_STATUSES = [
-  { value: 'open', label: 'Open' },
-  { value: 'in_progress', label: 'In Progress' },
-  { value: 'waiting_for_customer', label: 'Waiting for Customer' },
-  { value: 'resolved', label: 'Resolved' },
-  { value: 'closed', label: 'Closed' },
-];
-
-const TICKET_PRIORITIES = [
-  { value: 'low', label: 'Low' },
-  { value: 'medium', label: 'Medium' },
-  { value: 'high', label: 'High' },
-  { value: 'urgent', label: 'Urgent' },
-];
-
-const TICKET_CATEGORIES = [
-  { value: 'order_issue', label: 'Order Issue' },
-  { value: 'product_question', label: 'Product Question' },
-  { value: 'return_refund', label: 'Return & Refund' },
-  { value: 'payment_issue', label: 'Payment Issue' },
-  { value: 'account_issue', label: 'Account Issue' },
-  { value: 'general', label: 'General' },
+const MESSAGE_STATUSES = [
+  { value: 'new', label: 'New' },
+  { value: 'read', label: 'Read' },
+  { value: 'replied', label: 'Replied' },
 ];
 
 function formatDate(value) {
@@ -40,7 +22,7 @@ function formatDate(value) {
 }
 
 function formatLabel(value, options) {
-  return options.find((item) => item.value === value)?.label || value?.replace(/_/g, ' ') || '—';
+  return options.find((item) => item.value === value)?.label || value || '—';
 }
 
 function getInitials(name) {
@@ -53,109 +35,99 @@ function getInitials(name) {
     .join('');
 }
 
+function previewText(text, max = 90) {
+  const clean = (text || '').replace(/\s+/g, ' ').trim();
+  if (clean.length <= max) return clean;
+  return `${clean.slice(0, max)}…`;
+}
+
 export default function Messages() {
-  const [tickets, setTickets] = useState([]);
+  const [messages, setMessages] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
   const [actionError, setActionError] = useState('');
   const [actionSuccess, setActionSuccess] = useState('');
-  const [selectedTicket, setSelectedTicket] = useState(null);
-  const [detailLoading, setDetailLoading] = useState(false);
-  const [filters, setFilters] = useState({ status: '', priority: '', category: '', search: '' });
+  const [selectedMessage, setSelectedMessage] = useState(null);
+  const [statusFilter, setStatusFilter] = useState('');
   const [searchInput, setSearchInput] = useState('');
-  const [reply, setReply] = useState('');
-  const [replyStatus, setReplyStatus] = useState('');
-  const [replyPriority, setReplyPriority] = useState('');
+  const [statusDraft, setStatusDraft] = useState('new');
   const [submitting, setSubmitting] = useState(false);
 
-  const unreadCount = useMemo(
-    () => tickets.filter((ticket) => (ticket.adminUnreadCount || 0) > 0).length,
-    [tickets]
-  );
-
-  const openCount = useMemo(
-    () => tickets.filter((ticket) => ticket.status === 'open' || ticket.status === 'in_progress').length,
-    [tickets]
-  );
-
-  const loadTickets = useCallback(async () => {
+  const loadMessages = useCallback(async () => {
     setLoading(true);
     setError('');
     try {
-      const response = await ticketApi.getTickets(filters);
-      setTickets(response.data?.tickets || []);
+      const response = await contactApi.getMessages({
+        status: statusFilter || undefined,
+        limit: 100,
+      });
+      setMessages(response.data?.messages || []);
     } catch (err) {
-      setError(err.message || 'Failed to load tickets');
-      setTickets([]);
+      setError(err.message || 'Failed to load messages');
+      setMessages([]);
     } finally {
       setLoading(false);
     }
-  }, [filters]);
+  }, [statusFilter]);
 
   useEffect(() => {
-    loadTickets();
-  }, [loadTickets]);
+    loadMessages();
+  }, [loadMessages]);
 
-  useEffect(() => {
-    const timer = setTimeout(() => {
-      setFilters((current) =>
-        current.search === searchInput ? current : { ...current, search: searchInput }
-      );
-    }, 350);
+  const filteredMessages = useMemo(() => {
+    const query = searchInput.trim().toLowerCase();
+    if (!query) return messages;
 
-    return () => clearTimeout(timer);
-  }, [searchInput]);
+    return messages.filter((message) => {
+      const haystack = `${message.name || ''} ${message.email || ''} ${message.message || ''}`.toLowerCase();
+      return haystack.includes(query);
+    });
+  }, [messages, searchInput]);
 
-  const loadTicket = async (id) => {
-    setDetailLoading(true);
+  const newCount = useMemo(
+    () => messages.filter((message) => message.status === 'new').length,
+    [messages]
+  );
+
+  const selectMessage = async (message) => {
+    setSelectedMessage(message);
+    setStatusDraft(message.status || 'new');
     setActionError('');
     setActionSuccess('');
-    setSelectedTicket(null);
-    try {
-      const response = await ticketApi.getTicket(id);
-      const ticket = response.data;
-      setSelectedTicket(ticket);
-      setReply('');
-      setReplyStatus(ticket.status);
-      setReplyPriority(ticket.priority);
-    } catch (err) {
-      setActionError(err.message || 'Failed to load ticket details');
-    } finally {
-      setDetailLoading(false);
+
+    if (message.status === 'new') {
+      try {
+        const response = await contactApi.updateStatus(message._id, 'read');
+        const updated = response.data || { ...message, status: 'read' };
+        setSelectedMessage(updated);
+        setStatusDraft(updated.status || 'read');
+        setMessages((current) =>
+          current.map((item) => (item._id === message._id ? { ...item, ...updated } : item))
+        );
+      } catch {
+        // Keep message open even if auto-mark-read fails
+      }
     }
   };
 
-  const handleSubmitReply = async (event) => {
+  const handleUpdateStatus = async (event) => {
     event.preventDefault();
-    if (!selectedTicket) return;
-    if (!reply.trim() && replyStatus === selectedTicket.status && replyPriority === selectedTicket.priority) {
-      return;
-    }
+    if (!selectedMessage || statusDraft === selectedMessage.status) return;
 
     setSubmitting(true);
     setActionError('');
     setActionSuccess('');
 
     try {
-      if (reply.trim()) {
-        await ticketApi.replyToTicket(selectedTicket._id, {
-          message: reply.trim(),
-          status: replyStatus || undefined,
-          priority: replyPriority || undefined,
-        });
-        setActionSuccess('Reply sent.');
-      } else {
-        await ticketApi.updateTicket(selectedTicket._id, {
-          status: replyStatus || undefined,
-          priority: replyPriority || undefined,
-        });
-        setActionSuccess('Ticket updated.');
-      }
-      setReply('');
-      await loadTicket(selectedTicket._id);
-      await loadTickets();
+      const response = await contactApi.updateStatus(selectedMessage._id, statusDraft);
+      const updated = response.data || { ...selectedMessage, status: statusDraft };
+      setSelectedMessage(updated);
+      setMessages((current) =>
+        current.map((item) => (item._id === selectedMessage._id ? { ...item, ...updated } : item))
+      );
+      setActionSuccess('Status updated.');
     } catch (err) {
-      setActionError(err.message || 'Failed to send reply');
+      setActionError(err.message || 'Failed to update status');
     } finally {
       setSubmitting(false);
     }
@@ -163,30 +135,30 @@ export default function Messages() {
 
   const clearFilters = () => {
     setSearchInput('');
-    setFilters({ status: '', priority: '', category: '', search: '' });
+    setStatusFilter('');
   };
 
-  const hasActiveFilters = Boolean(filters.status || filters.priority || filters.category || filters.search);
+  const hasActiveFilters = Boolean(statusFilter || searchInput.trim());
 
   return (
-    <AdminLayout title="Support Tickets" label="Support">
+    <AdminLayout title="Support Messages" label="Support">
       <div className="tickets-admin-page">
         <div className="tickets-toolbar">
           <div className="tickets-toolbar-stats">
             <div className="tickets-stat">
-              <span className="tickets-stat-value">{tickets.length}</span>
+              <span className="tickets-stat-value">{filteredMessages.length}</span>
               <span className="tickets-stat-label">Visible</span>
             </div>
             <div className="tickets-stat">
-              <span className="tickets-stat-value">{openCount}</span>
-              <span className="tickets-stat-label">Active</span>
+              <span className="tickets-stat-value">{newCount}</span>
+              <span className="tickets-stat-label">New</span>
             </div>
             <div className="tickets-stat">
-              <span className="tickets-stat-value">{unreadCount}</span>
-              <span className="tickets-stat-label">Unread</span>
+              <span className="tickets-stat-value">{messages.length}</span>
+              <span className="tickets-stat-label">Total</span>
             </div>
           </div>
-          <button type="button" className="btn-secondary" onClick={loadTickets} disabled={loading}>
+          <button type="button" className="btn-secondary" onClick={loadMessages} disabled={loading}>
             {loading ? 'Refreshing…' : 'Refresh'}
           </button>
         </div>
@@ -198,52 +170,24 @@ export default function Messages() {
             <div className="tickets-filters">
               <input
                 type="search"
-                placeholder="Search by subject, name, or email…"
+                placeholder="Search by name, email, or message…"
                 value={searchInput}
                 onChange={(event) => setSearchInput(event.target.value)}
                 className="search-input"
               />
-              <div className="tickets-filter-row">
-                <select
-                  value={filters.status}
-                  onChange={(event) => setFilters({ ...filters, status: event.target.value })}
-                  className="filter-select"
-                  aria-label="Filter by status"
-                >
-                  <option value="">All statuses</option>
-                  {TICKET_STATUSES.map((status) => (
-                    <option key={status.value} value={status.value}>
-                      {status.label}
-                    </option>
-                  ))}
-                </select>
-                <select
-                  value={filters.priority}
-                  onChange={(event) => setFilters({ ...filters, priority: event.target.value })}
-                  className="filter-select"
-                  aria-label="Filter by priority"
-                >
-                  <option value="">All priorities</option>
-                  {TICKET_PRIORITIES.map((priority) => (
-                    <option key={priority.value} value={priority.value}>
-                      {priority.label}
-                    </option>
-                  ))}
-                </select>
-                <select
-                  value={filters.category}
-                  onChange={(event) => setFilters({ ...filters, category: event.target.value })}
-                  className="filter-select"
-                  aria-label="Filter by category"
-                >
-                  <option value="">All categories</option>
-                  {TICKET_CATEGORIES.map((category) => (
-                    <option key={category.value} value={category.value}>
-                      {category.label}
-                    </option>
-                  ))}
-                </select>
-              </div>
+              <select
+                value={statusFilter}
+                onChange={(event) => setStatusFilter(event.target.value)}
+                className="filter-select"
+                aria-label="Filter by status"
+              >
+                <option value="">All statuses</option>
+                {MESSAGE_STATUSES.map((status) => (
+                  <option key={status.value} value={status.value}>
+                    {status.label}
+                  </option>
+                ))}
+              </select>
               {hasActiveFilters && (
                 <button type="button" className="btn-text tickets-clear-filters" onClick={clearFilters}>
                   Clear filters
@@ -260,44 +204,41 @@ export default function Messages() {
                   </div>
                 ))}
               </div>
-            ) : tickets.length === 0 ? (
+            ) : filteredMessages.length === 0 ? (
               <div className="tickets-empty-state">
-                <p className="tickets-empty-title">No tickets found</p>
+                <p className="tickets-empty-title">No messages found</p>
                 <p className="tickets-empty-copy">
                   {hasActiveFilters
                     ? 'Try adjusting your filters or search.'
-                    : 'Customer support tickets will appear here when submitted.'}
+                    : 'Contact form submissions will appear here.'}
                 </p>
               </div>
             ) : (
               <div className="tickets-list">
-                {tickets.map((ticket) => {
-                  const isSelected = selectedTicket?._id === ticket._id;
-                  const isUnread = (ticket.adminUnreadCount || 0) > 0;
-                  const customerName = ticket.customer?.name || ticket.name || 'Customer';
+                {filteredMessages.map((message) => {
+                  const isSelected = selectedMessage?._id === message._id;
+                  const isNew = message.status === 'new';
 
                   return (
                     <button
-                      key={ticket._id}
+                      key={message._id}
                       type="button"
-                      className={`ticket-list-item ${isSelected ? 'selected' : ''} ${isUnread ? 'unread' : ''}`}
-                      onClick={() => loadTicket(ticket._id)}
+                      className={`ticket-list-item ${isSelected ? 'selected' : ''} ${isNew ? 'unread' : ''}`}
+                      onClick={() => selectMessage(message)}
                     >
                       <div className="ticket-list-header">
-                        <span className="ticket-list-subject">{ticket.subject}</span>
-                        {isUnread && <span className="ticket-unread-dot" aria-label="Unread" />}
+                        <span className="ticket-list-subject">{message.name || 'Customer'}</span>
+                        {isNew && <span className="ticket-unread-dot" aria-label="New" />}
                       </div>
                       <div className="ticket-list-meta">
-                        <span className="ticket-list-customer">{customerName}</span>
-                        <span className={`ticket-badge ticket-status-${ticket.status}`}>
-                          {formatLabel(ticket.status, TICKET_STATUSES)}
+                        <span className="ticket-list-customer">{message.email}</span>
+                        <span className={`ticket-badge ticket-status-${message.status}`}>
+                          {formatLabel(message.status, MESSAGE_STATUSES)}
                         </span>
                       </div>
                       <div className="ticket-list-footer">
-                        <span className={`ticket-badge ticket-priority-${ticket.priority}`}>
-                          {formatLabel(ticket.priority, TICKET_PRIORITIES)}
-                        </span>
-                        <span>{formatDate(ticket.lastMessageAt)}</span>
+                        <span className="ticket-list-preview">{previewText(message.message)}</span>
+                        <span>{formatDate(message.createdAt)}</span>
                       </div>
                     </button>
                   );
@@ -307,79 +248,37 @@ export default function Messages() {
           </div>
 
           <div className="ticket-detail-panel">
-            {detailLoading ? (
-              <div className="ticket-detail-shimmer">
-                <div className="shimmer-header">
-                  <div className="shimmer-line shimmer-title" />
-                  <div className="shimmer-meta-row">
-                    <div className="shimmer-chip" />
-                    <div className="shimmer-chip shimmer-chip--wide" />
-                    <div className="shimmer-chip" />
-                    <div className="shimmer-chip shimmer-chip--narrow" />
-                  </div>
-                </div>
-                <div className="shimmer-messages">
-                  <div className="shimmer-message shimmer-message--customer">
-                    <div className="shimmer-msg-header">
-                      <div className="shimmer-line shimmer-sender" />
-                      <div className="shimmer-line shimmer-date" />
-                    </div>
-                    <div className="shimmer-line shimmer-text shimmer-text--full" />
-                    <div className="shimmer-line shimmer-text shimmer-text--wide" />
-                  </div>
-                  <div className="shimmer-message shimmer-message--admin">
-                    <div className="shimmer-msg-header">
-                      <div className="shimmer-line shimmer-sender" />
-                      <div className="shimmer-line shimmer-date" />
-                    </div>
-                    <div className="shimmer-line shimmer-text shimmer-text--full" />
-                  </div>
-                </div>
-              </div>
-            ) : selectedTicket ? (
+            {selectedMessage ? (
               <>
                 <div className="ticket-detail-header">
                   <div className="ticket-detail-title-row">
-                    <h2>{selectedTicket.subject}</h2>
+                    <h2>Message from {selectedMessage.name || 'Customer'}</h2>
                     <div className="ticket-detail-badges">
-                      <span className={`ticket-badge ticket-status-${selectedTicket.status}`}>
-                        {formatLabel(selectedTicket.status, TICKET_STATUSES)}
-                      </span>
-                      <span className={`ticket-badge ticket-priority-${selectedTicket.priority}`}>
-                        {formatLabel(selectedTicket.priority, TICKET_PRIORITIES)}
+                      <span className={`ticket-badge ticket-status-${selectedMessage.status}`}>
+                        {formatLabel(selectedMessage.status, MESSAGE_STATUSES)}
                       </span>
                     </div>
                   </div>
 
                   <div className="ticket-detail-meta">
                     <div className="ticket-meta-card">
-                      <span className="ticket-meta-label">Customer</span>
-                      <span className="ticket-meta-value">
-                        {selectedTicket.customer?.name || selectedTicket.name || '—'}
-                      </span>
+                      <span className="ticket-meta-label">Name</span>
+                      <span className="ticket-meta-value">{selectedMessage.name || '—'}</span>
                     </div>
                     <div className="ticket-meta-card">
                       <span className="ticket-meta-label">Email</span>
                       <span className="ticket-meta-value">
-                        {selectedTicket.customer?.email || selectedTicket.email || '—'}
+                        {selectedMessage.email ? (
+                          <a href={`mailto:${selectedMessage.email}`}>{selectedMessage.email}</a>
+                        ) : (
+                          '—'
+                        )}
                       </span>
                     </div>
                     <div className="ticket-meta-card">
-                      <span className="ticket-meta-label">Category</span>
-                      <span className="ticket-meta-value">
-                        {formatLabel(selectedTicket.category, TICKET_CATEGORIES)}
-                      </span>
+                      <span className="ticket-meta-label">Received</span>
+                      <span className="ticket-meta-value">{formatDate(selectedMessage.createdAt)}</span>
                     </div>
-                    <div className="ticket-meta-card">
-                      <span className="ticket-meta-label">Created</span>
-                      <span className="ticket-meta-value">{formatDate(selectedTicket.createdAt)}</span>
-                    </div>
-                    {selectedTicket.order?.orderNumber && (
-                      <div className="ticket-meta-card">
-                        <span className="ticket-meta-label">Order</span>
-                        <span className="ticket-meta-value">{selectedTicket.order.orderNumber}</span>
-                      </div>
-                    )}
                   </div>
                 </div>
 
@@ -387,92 +286,60 @@ export default function Messages() {
                 {actionSuccess && <div className="alert-banner alert-success">{actionSuccess}</div>}
 
                 <div className="ticket-messages">
-                  {(selectedTicket.messages || []).length === 0 ? (
-                    <div className="tickets-empty-state tickets-empty-state--compact">
-                      <p className="tickets-empty-title">No messages yet</p>
+                  <div className="ticket-message customer-message">
+                    <div className="ticket-message-avatar" aria-hidden="true">
+                      {getInitials(selectedMessage.name)}
                     </div>
-                  ) : (
-                    (selectedTicket.messages || []).map((msg, idx) => {
-                      const isAdmin = msg.messageSenderModel === 'Admin';
-                      const senderName = isAdmin
-                        ? 'Support'
-                        : selectedTicket.customer?.name || selectedTicket.name || 'Customer';
-
-                      return (
-                        <div
-                          key={msg._id || idx}
-                          className={`ticket-message ${isAdmin ? 'admin-message' : 'customer-message'}`}
-                        >
-                          <div className="ticket-message-avatar" aria-hidden="true">
-                            {getInitials(senderName)}
-                          </div>
-                          <div className="ticket-message-body">
-                            <div className="ticket-message-header">
-                              <span className="ticket-message-sender">{senderName}</span>
-                              <span className="ticket-message-date">{formatDate(msg.createdAt)}</span>
-                            </div>
-                            <div className="ticket-message-content">
-                              {(msg.message || '').split('\n').map((line, i) => (
-                                <p key={i}>{line || '\u00A0'}</p>
-                              ))}
-                            </div>
-                          </div>
-                        </div>
-                      );
-                    })
-                  )}
+                    <div className="ticket-message-body">
+                      <div className="ticket-message-header">
+                        <span className="ticket-message-sender">{selectedMessage.name || 'Customer'}</span>
+                        <span className="ticket-message-date">{formatDate(selectedMessage.createdAt)}</span>
+                      </div>
+                      <div className="ticket-message-content">
+                        {(selectedMessage.message || '').split('\n').map((line, index) => (
+                          <p key={index}>{line || '\u00A0'}</p>
+                        ))}
+                      </div>
+                    </div>
+                  </div>
                 </div>
 
-                {selectedTicket.status === 'closed' ? (
-                  <div className="ticket-closed-banner">This ticket is closed. Reopen it by changing the status below if needed.</div>
-                ) : null}
-
                 <div className="ticket-reply-form">
-                  <form onSubmit={handleSubmitReply}>
-                    <div className="reply-form-fields">
-                      <label className="reply-field">
-                        <span>Status</span>
-                        <select
-                          value={replyStatus}
-                          onChange={(event) => setReplyStatus(event.target.value)}
-                          className="reply-select"
-                        >
-                          {TICKET_STATUSES.map((status) => (
-                            <option key={status.value} value={status.value}>
-                              {status.label}
-                            </option>
-                          ))}
-                        </select>
-                      </label>
-                      <label className="reply-field">
-                        <span>Priority</span>
-                        <select
-                          value={replyPriority}
-                          onChange={(event) => setReplyPriority(event.target.value)}
-                          className="reply-select"
-                        >
-                          {TICKET_PRIORITIES.map((priority) => (
-                            <option key={priority.value} value={priority.value}>
-                              {priority.label}
-                            </option>
-                          ))}
-                        </select>
-                      </label>
-                    </div>
-                    <textarea
-                      value={reply}
-                      onChange={(event) => setReply(event.target.value)}
-                      placeholder={
-                        selectedTicket.status === 'closed'
-                          ? 'Add an internal note or reopen with a reply…'
-                          : 'Type your reply to the customer…'
-                      }
-                      rows={4}
-                      className="reply-textarea"
-                    />
+                  <div className="reply-actions-row">
+                    {selectedMessage.email && (
+                      <a
+                        className="btn-secondary"
+                        href={`mailto:${selectedMessage.email}?subject=${encodeURIComponent(
+                          `Re: Your message to Zivorah`
+                        )}`}
+                      >
+                        Reply by email
+                      </a>
+                    )}
+                  </div>
+
+                  <form onSubmit={handleUpdateStatus}>
+                    <label className="reply-field">
+                      <span>Status</span>
+                      <select
+                        value={statusDraft}
+                        onChange={(event) => setStatusDraft(event.target.value)}
+                        className="reply-select"
+                      >
+                        {MESSAGE_STATUSES.map((status) => (
+                          <option key={status.value} value={status.value}>
+                            {status.label}
+                          </option>
+                        ))}
+                      </select>
+                    </label>
                     <div className="reply-actions">
-                      <button type="submit" className="btn-primary" disabled={submitting}>
-                        {submitting ? 'Sending…' : reply.trim() ? 'Send Reply' : 'Update Ticket'}
+                      <button
+                        type="submit"
+                        className="btn-primary"
+                        disabled={submitting || statusDraft === selectedMessage.status}
+                      >
+                        {submitting ? 'Saving…' : 'Update Status'}
                       </button>
                     </div>
                   </form>
@@ -480,9 +347,9 @@ export default function Messages() {
               </>
             ) : (
               <div className="tickets-empty-state tickets-empty-state--panel">
-                <p className="tickets-empty-title">Select a ticket</p>
+                <p className="tickets-empty-title">Select a message</p>
                 <p className="tickets-empty-copy">
-                  Choose a conversation from the list to read messages and reply.
+                  Choose a contact submission from the list to read it and update its status.
                 </p>
               </div>
             )}

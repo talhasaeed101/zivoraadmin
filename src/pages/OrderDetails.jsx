@@ -5,6 +5,16 @@ import ConfirmModal from '../components/ConfirmModal.jsx';
 import { orderApi } from '../services/api.js';
 import { buildCustomizationSummaryLines } from '../utils/customizationSummary.js';
 import { ORDER_STATUS, ORDER_STATUS_LABELS, getAvailableNextStatuses } from '../constants/orderConstants.js';
+import {
+  SHIPPING_BOOKING_STATUS,
+  SHIPPING_BOOKING_STATUS_OPTIONS,
+  SHIPPING_COURIER,
+  SHIPPING_COURIER_OPTIONS,
+  SHIPPING_SHIPMENT_STATUS_LABELS,
+  SHIPPING_SHIPMENT_STATUS_OPTIONS,
+  POSTEX_TRACKING_URL,
+  getShippingFormDefaults,
+} from '../constants/shippingConstants.js';
 import { useSocket } from '../context/SocketContext.jsx';
 import './Orders.css';
 
@@ -72,6 +82,11 @@ export default function OrderDetails() {
     trackingUrl: '',
     estimatedDeliveryDate: '',
   });
+  const [shippingForm, setShippingForm] = useState(getShippingFormDefaults(null));
+  const [shippingSaving, setShippingSaving] = useState(false);
+  const [shippingError, setShippingError] = useState('');
+  const [shippingSuccess, setShippingSuccess] = useState('');
+  const [copyFeedback, setCopyFeedback] = useState('');
 
   const loadOrder = useCallback(async () => {
     setLoading(true);
@@ -93,6 +108,9 @@ export default function OrderDetails() {
         trackingUrl: orderData.trackingUrl || '',
         estimatedDeliveryDate: orderData.estimatedDeliveryDate ? new Date(orderData.estimatedDeliveryDate).toISOString().split('T')[0] : '',
       });
+      setShippingForm(getShippingFormDefaults(orderData));
+      setShippingError('');
+      setShippingSuccess('');
     } catch (err) {
       setError(err.message || 'Failed to load order');
       setOrder(null);
@@ -140,6 +158,86 @@ export default function OrderDetails() {
   const handleCancelConfirm = () => {
     setPendingStatusChange(null);
     setConfirmModalOpen(false);
+  };
+
+  const handleShippingChange = (event) => {
+    const { name, value } = event.target;
+
+    setShippingForm((prev) => {
+      const next = { ...prev, [name]: value };
+
+      if (name === 'courier' && value === SHIPPING_COURIER.POSTEX) {
+        next.courierName = 'PostEx';
+        if (!prev.trackingUrl || prev.trackingUrl === '' || prev.courier === SHIPPING_COURIER.OTHER) {
+          next.trackingUrl = POSTEX_TRACKING_URL;
+        }
+      }
+
+      if (name === 'courier' && value === SHIPPING_COURIER.OTHER && prev.trackingUrl === POSTEX_TRACKING_URL) {
+        next.trackingUrl = '';
+        next.courierName = '';
+      }
+
+      if (name === 'bookingStatus' && value === SHIPPING_BOOKING_STATUS.BOOKED && !prev.shipmentStatus) {
+        next.shipmentStatus = 'BOOKED';
+      }
+
+      return next;
+    });
+  };
+
+  const handleCopyTrackingId = async () => {
+    const trackingId = shippingForm.trackingId || order?.shipping?.trackingId || order?.trackingNumber;
+    if (!trackingId) return;
+
+    try {
+      await navigator.clipboard.writeText(trackingId);
+      setCopyFeedback('Tracking ID copied');
+      setTimeout(() => setCopyFeedback(''), 2000);
+    } catch {
+      setCopyFeedback('Unable to copy');
+      setTimeout(() => setCopyFeedback(''), 2000);
+    }
+  };
+
+  const handleSaveShipping = async (event) => {
+    event.preventDefault();
+    if (shippingSaving) return;
+
+    setShippingSaving(true);
+    setShippingError('');
+    setShippingSuccess('');
+
+    try {
+      const payload = {
+        courier: shippingForm.courier,
+        courierName:
+          shippingForm.courier === SHIPPING_COURIER.POSTEX
+            ? shippingForm.courierName.trim() || 'PostEx'
+            : shippingForm.courierName.trim(),
+        trackingId: shippingForm.trackingId.trim(),
+        trackingUrl: shippingForm.trackingUrl.trim(),
+        bookingStatus: shippingForm.bookingStatus,
+        shipmentStatus: shippingForm.shipmentStatus,
+        internalNote: shippingForm.internalNote.trim() || null,
+      };
+
+      const response = await orderApi.updateOrderShipping(id, payload);
+      const updatedOrder = response.data;
+      setOrder(updatedOrder);
+      setShippingForm(getShippingFormDefaults(updatedOrder));
+      setForm((prev) => ({
+        ...prev,
+        trackingNumber: updatedOrder.trackingNumber || updatedOrder.shipping?.trackingId || prev.trackingNumber,
+        courierName: updatedOrder.courierName || updatedOrder.shipping?.courierName || prev.courierName,
+        trackingUrl: updatedOrder.trackingUrl || updatedOrder.shipping?.trackingUrl || prev.trackingUrl,
+      }));
+      setShippingSuccess('Shipment details saved successfully.');
+    } catch (err) {
+      setShippingError(err.message || 'Failed to save shipment details');
+    } finally {
+      setShippingSaving(false);
+    }
   };
 
   const handleSubmit = async (event) => {
@@ -377,6 +475,207 @@ export default function OrderDetails() {
                 </div>
               </section>
             )}
+
+            <section className="order-detail-card order-detail-card-full shipping-tracking-card">
+              <h3 className="order-detail-heading">Shipping & Tracking</h3>
+
+              {(order.shipping?.trackingId || order.shipping?.shipmentStatus) && (
+                <div className="shipping-summary-grid">
+                  <div>
+                    <span className="order-detail-label">Courier</span>
+                    <strong>
+                      {order.shipping?.courierName ||
+                        (order.shipping?.courier === 'POSTEX' ? 'PostEx' : order.courierName) ||
+                        '—'}
+                    </strong>
+                  </div>
+                  <div>
+                    <span className="order-detail-label">Tracking ID</span>
+                    <strong>{order.shipping?.trackingId || order.trackingNumber || '—'}</strong>
+                  </div>
+                  <div>
+                    <span className="order-detail-label">Booking Status</span>
+                    <strong>{order.shipping?.bookingStatus || '—'}</strong>
+                  </div>
+                  <div>
+                    <span className="order-detail-label">Shipment Status</span>
+                    <strong>
+                      {SHIPPING_SHIPMENT_STATUS_LABELS[order.shipping?.shipmentStatus] ||
+                        order.shipping?.shipmentStatus ||
+                        '—'}
+                    </strong>
+                  </div>
+                  <div>
+                    <span className="order-detail-label">Booked</span>
+                    <strong>{formatDate(order.shipping?.bookedAt)}</strong>
+                  </div>
+                  <div>
+                    <span className="order-detail-label">Delivered</span>
+                    <strong>{formatDate(order.shipping?.deliveredAt)}</strong>
+                  </div>
+                  <div>
+                    <span className="order-detail-label">Last Updated</span>
+                    <strong>{formatDate(order.shipping?.lastUpdatedAt)}</strong>
+                  </div>
+                </div>
+              )}
+
+              <div className="shipping-action-row">
+                {(shippingForm.trackingId || order.shipping?.trackingId || order.trackingNumber) && (
+                  <button type="button" className="btn-secondary" onClick={handleCopyTrackingId}>
+                    Copy Tracking ID
+                  </button>
+                )}
+                {(shippingForm.trackingUrl || order.shipping?.trackingUrl || order.trackingUrl) && (
+                  <a
+                    className="btn-secondary"
+                    href={shippingForm.trackingUrl || order.shipping?.trackingUrl || order.trackingUrl}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                  >
+                    Open Tracking Page
+                  </a>
+                )}
+                {copyFeedback && <span className="shipping-copy-feedback">{copyFeedback}</span>}
+              </div>
+
+              {shippingSuccess && <div className="alert-banner alert-success">{shippingSuccess}</div>}
+              {shippingError && <div className="alert-banner alert-error">{shippingError}</div>}
+
+              <form className="shipping-form" onSubmit={handleSaveShipping}>
+                <div className="admin-form-grid">
+                  <div className="admin-form-field">
+                    <label htmlFor="shippingCourier">Courier</label>
+                    <select
+                      id="shippingCourier"
+                      name="courier"
+                      value={shippingForm.courier}
+                      onChange={handleShippingChange}
+                      disabled={shippingSaving}
+                    >
+                      {SHIPPING_COURIER_OPTIONS.map((option) => (
+                        <option key={option.value} value={option.value}>
+                          {option.label}
+                        </option>
+                      ))}
+                    </select>
+                  </div>
+
+                  {shippingForm.courier === SHIPPING_COURIER.OTHER && (
+                    <div className="admin-form-field">
+                      <label htmlFor="shippingCourierName">Courier Name</label>
+                      <input
+                        id="shippingCourierName"
+                        name="courierName"
+                        type="text"
+                        value={shippingForm.courierName}
+                        onChange={handleShippingChange}
+                        disabled={shippingSaving}
+                        maxLength={100}
+                        required
+                        placeholder="e.g. TCS"
+                      />
+                    </div>
+                  )}
+
+                  <div className="admin-form-field">
+                    <label htmlFor="shippingTrackingId">Tracking ID</label>
+                    <input
+                      id="shippingTrackingId"
+                      name="trackingId"
+                      type="text"
+                      value={shippingForm.trackingId}
+                      onChange={handleShippingChange}
+                      disabled={shippingSaving}
+                      maxLength={100}
+                      placeholder="Paste PostEx tracking ID"
+                    />
+                  </div>
+
+                  <div className="admin-form-field">
+                    <label htmlFor="shippingTrackingUrl">Tracking URL</label>
+                    <input
+                      id="shippingTrackingUrl"
+                      name="trackingUrl"
+                      type="url"
+                      value={shippingForm.trackingUrl}
+                      onChange={handleShippingChange}
+                      disabled={shippingSaving}
+                      placeholder="https://postex.pk/tracking"
+                    />
+                  </div>
+
+                  <div className="admin-form-field">
+                    <label htmlFor="shippingBookingStatus">Booking Status</label>
+                    <select
+                      id="shippingBookingStatus"
+                      name="bookingStatus"
+                      value={shippingForm.bookingStatus}
+                      onChange={handleShippingChange}
+                      disabled={shippingSaving}
+                    >
+                      {SHIPPING_BOOKING_STATUS_OPTIONS.map((option) => (
+                        <option key={option.value} value={option.value}>
+                          {option.label}
+                        </option>
+                      ))}
+                    </select>
+                  </div>
+
+                  <div className="admin-form-field">
+                    <label htmlFor="shippingShipmentStatus">Shipment Status</label>
+                    <select
+                      id="shippingShipmentStatus"
+                      name="shipmentStatus"
+                      value={shippingForm.shipmentStatus}
+                      onChange={handleShippingChange}
+                      disabled={shippingSaving}
+                    >
+                      {SHIPPING_SHIPMENT_STATUS_OPTIONS.map((option) => (
+                        <option key={option.value} value={option.value}>
+                          {option.label}
+                        </option>
+                      ))}
+                    </select>
+                  </div>
+
+                  <div className="admin-form-field admin-form-field-full">
+                    <label htmlFor="shippingInternalNote">Internal Shipping Note</label>
+                    <textarea
+                      id="shippingInternalNote"
+                      name="internalNote"
+                      rows={3}
+                      value={shippingForm.internalNote}
+                      onChange={handleShippingChange}
+                      disabled={shippingSaving}
+                      maxLength={500}
+                      placeholder="Booked from PostEx merchant portal..."
+                    />
+                  </div>
+                </div>
+
+                <div className="admin-form-actions">
+                  <button type="submit" className="btn-primary" disabled={shippingSaving}>
+                    {shippingSaving ? 'Saving...' : 'Save Shipment'}
+                  </button>
+                </div>
+              </form>
+
+              {Array.isArray(order.shippingHistory) && order.shippingHistory.length > 0 && (
+                <div className="shipment-timeline">
+                  <h4 className="shipment-timeline-title">Shipment Timeline</h4>
+                  {[...order.shippingHistory].reverse().map((entry, index) => (
+                    <div key={`${entry.status}-${entry.changedAt}-${index}`} className="shipment-timeline-item">
+                      <strong>
+                        {SHIPPING_SHIPMENT_STATUS_LABELS[entry.status] || entry.status}
+                      </strong>
+                      <span>{formatDate(entry.changedAt)}</span>
+                      {entry.note && <p>{entry.note}</p>}
+                    </div>
+                  ))}
+                </div>
+              )}
+            </section>
 
             <form className="admin-form-card order-status-form" onSubmit={handleSubmit}>
               <h3 className="order-detail-heading">Update Order</h3>

@@ -43,7 +43,6 @@ export function AuthProvider({ children }) {
     setStoredAdmin(adminData);
     setToken(authToken);
     setAdmin(adminData);
-    console.log("dsssss")
     return adminData;
   }, []);
 
