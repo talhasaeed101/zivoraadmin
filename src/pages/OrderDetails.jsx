@@ -44,7 +44,7 @@ const formatPaymentMethod = (method) => {
     case 'cod':
       return 'Cash on Delivery';
     case 'bank_transfer':
-      return 'Bank Transfer (Meezan Bank)';
+      return 'Bank Transfer (UBL)';
     case 'online':
       return 'Online Payment';
     default:
