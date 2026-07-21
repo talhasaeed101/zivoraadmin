@@ -1,50 +1,115 @@
-import { useEffect, useState } from 'react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
 import AdminLayout from '../components/AdminLayout.jsx';
 import { ticketApi } from '../services/api.js';
 import './Orders.css';
 import './Messages.css';
 
-const TICKET_STATUSES = ['open', 'in_progress', 'waiting_for_customer', 'resolved', 'closed'];
-const TICKET_PRIORITIES = ['low', 'medium', 'high', 'urgent'];
-const TICKET_CATEGORIES = ['order_issue', 'product_question', 'return_refund', 'payment_issue', 'account_issue', 'general'];
+const TICKET_STATUSES = [
+  { value: 'open', label: 'Open' },
+  { value: 'in_progress', label: 'In Progress' },
+  { value: 'waiting_for_customer', label: 'Waiting for Customer' },
+  { value: 'resolved', label: 'Resolved' },
+  { value: 'closed', label: 'Closed' },
+];
+
+const TICKET_PRIORITIES = [
+  { value: 'low', label: 'Low' },
+  { value: 'medium', label: 'Medium' },
+  { value: 'high', label: 'High' },
+  { value: 'urgent', label: 'Urgent' },
+];
+
+const TICKET_CATEGORIES = [
+  { value: 'order_issue', label: 'Order Issue' },
+  { value: 'product_question', label: 'Product Question' },
+  { value: 'return_refund', label: 'Return & Refund' },
+  { value: 'payment_issue', label: 'Payment Issue' },
+  { value: 'account_issue', label: 'Account Issue' },
+  { value: 'general', label: 'General' },
+];
 
 function formatDate(value) {
   if (!value) return '—';
   return new Date(value).toLocaleString('en-GB', {
-    day: 'numeric', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit',
+    day: 'numeric',
+    month: 'short',
+    year: 'numeric',
+    hour: '2-digit',
+    minute: '2-digit',
   });
+}
+
+function formatLabel(value, options) {
+  return options.find((item) => item.value === value)?.label || value?.replace(/_/g, ' ') || '—';
+}
+
+function getInitials(name) {
+  if (!name) return '?';
+  return name
+    .split(/\s+/)
+    .filter(Boolean)
+    .slice(0, 2)
+    .map((part) => part[0]?.toUpperCase())
+    .join('');
 }
 
 export default function Messages() {
   const [tickets, setTickets] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
+  const [actionError, setActionError] = useState('');
+  const [actionSuccess, setActionSuccess] = useState('');
   const [selectedTicket, setSelectedTicket] = useState(null);
   const [detailLoading, setDetailLoading] = useState(false);
   const [filters, setFilters] = useState({ status: '', priority: '', category: '', search: '' });
+  const [searchInput, setSearchInput] = useState('');
   const [reply, setReply] = useState('');
   const [replyStatus, setReplyStatus] = useState('');
   const [replyPriority, setReplyPriority] = useState('');
   const [submitting, setSubmitting] = useState(false);
 
-  const loadTickets = async () => {
+  const unreadCount = useMemo(
+    () => tickets.filter((ticket) => (ticket.adminUnreadCount || 0) > 0).length,
+    [tickets]
+  );
+
+  const openCount = useMemo(
+    () => tickets.filter((ticket) => ticket.status === 'open' || ticket.status === 'in_progress').length,
+    [tickets]
+  );
+
+  const loadTickets = useCallback(async () => {
     setLoading(true);
+    setError('');
     try {
       const response = await ticketApi.getTickets(filters);
       setTickets(response.data?.tickets || []);
     } catch (err) {
       setError(err.message || 'Failed to load tickets');
+      setTickets([]);
     } finally {
       setLoading(false);
     }
-  };
+  }, [filters]);
 
   useEffect(() => {
     loadTickets();
-  }, [filters]);
+  }, [loadTickets]);
+
+  useEffect(() => {
+    const timer = setTimeout(() => {
+      setFilters((current) =>
+        current.search === searchInput ? current : { ...current, search: searchInput }
+      );
+    }, 350);
+
+    return () => clearTimeout(timer);
+  }, [searchInput]);
 
   const loadTicket = async (id) => {
     setDetailLoading(true);
+    setActionError('');
+    setActionSuccess('');
     setSelectedTicket(null);
     try {
       const response = await ticketApi.getTicket(id);
@@ -54,254 +119,372 @@ export default function Messages() {
       setReplyStatus(ticket.status);
       setReplyPriority(ticket.priority);
     } catch (err) {
-      console.error('Failed to load ticket:', err);
+      setActionError(err.message || 'Failed to load ticket details');
     } finally {
       setDetailLoading(false);
     }
   };
 
-  const handleSubmitReply = async (e) => {
-    e.preventDefault();
-    if (!reply.trim() && !replyStatus && !replyPriority) return;
+  const handleSubmitReply = async (event) => {
+    event.preventDefault();
+    if (!selectedTicket) return;
+    if (!reply.trim() && replyStatus === selectedTicket.status && replyPriority === selectedTicket.priority) {
+      return;
+    }
 
     setSubmitting(true);
+    setActionError('');
+    setActionSuccess('');
+
     try {
       if (reply.trim()) {
         await ticketApi.replyToTicket(selectedTicket._id, {
-          message: reply,
+          message: reply.trim(),
           status: replyStatus || undefined,
           priority: replyPriority || undefined,
         });
-      } else if (replyStatus || replyPriority) {
+        setActionSuccess('Reply sent.');
+      } else {
         await ticketApi.updateTicket(selectedTicket._id, {
           status: replyStatus || undefined,
           priority: replyPriority || undefined,
         });
+        setActionSuccess('Ticket updated.');
       }
+      setReply('');
       await loadTicket(selectedTicket._id);
       await loadTickets();
     } catch (err) {
-      console.error('Failed to send reply:', err);
+      setActionError(err.message || 'Failed to send reply');
     } finally {
       setSubmitting(false);
     }
   };
 
+  const clearFilters = () => {
+    setSearchInput('');
+    setFilters({ status: '', priority: '', category: '', search: '' });
+  };
+
+  const hasActiveFilters = Boolean(filters.status || filters.priority || filters.category || filters.search);
+
   return (
     <AdminLayout title="Support Tickets" label="Support">
       <div className="tickets-admin-page">
+        <div className="tickets-toolbar">
+          <div className="tickets-toolbar-stats">
+            <div className="tickets-stat">
+              <span className="tickets-stat-value">{tickets.length}</span>
+              <span className="tickets-stat-label">Visible</span>
+            </div>
+            <div className="tickets-stat">
+              <span className="tickets-stat-value">{openCount}</span>
+              <span className="tickets-stat-label">Active</span>
+            </div>
+            <div className="tickets-stat">
+              <span className="tickets-stat-value">{unreadCount}</span>
+              <span className="tickets-stat-label">Unread</span>
+            </div>
+          </div>
+          <button type="button" className="btn-secondary" onClick={loadTickets} disabled={loading}>
+            {loading ? 'Refreshing…' : 'Refresh'}
+          </button>
+        </div>
+
         {error && <div className="alert-banner alert-error">{error}</div>}
 
         <div className="tickets-admin-content">
-          {/* Tickets List */}
           <div className="tickets-list-panel">
             <div className="tickets-filters">
               <input
-                type="text"
-                placeholder="Search tickets..."
-                value={filters.search}
-                onChange={(e) => setFilters({ ...filters, search: e.target.value })}
+                type="search"
+                placeholder="Search by subject, name, or email…"
+                value={searchInput}
+                onChange={(event) => setSearchInput(event.target.value)}
                 className="search-input"
               />
-              <select
-                value={filters.status}
-                onChange={(e) => setFilters({ ...filters, status: e.target.value })}
-                className="filter-select"
-              >
-                <option value="">All Statuses</option>
-                {TICKET_STATUSES.map(status => (
-                  <option key={status} value={status}>{status.replace('_', ' ')}</option>
-                ))}
-              </select>
-              <select
-                value={filters.priority}
-                onChange={(e) => setFilters({ ...filters, priority: e.target.value })}
-                className="filter-select"
-              >
-                <option value="">All Priorities</option>
-                {TICKET_PRIORITIES.map(priority => (
-                  <option key={priority} value={priority}>{priority}</option>
-                ))}
-              </select>
-              <select
-                value={filters.category}
-                onChange={(e) => setFilters({ ...filters, category: e.target.value })}
-                className="filter-select"
-              >
-                <option value="">All Categories</option>
-                {TICKET_CATEGORIES.map(category => (
-                  <option key={category} value={category}>{category.replace('_', ' ')}</option>
-                ))}
-              </select>
+              <div className="tickets-filter-row">
+                <select
+                  value={filters.status}
+                  onChange={(event) => setFilters({ ...filters, status: event.target.value })}
+                  className="filter-select"
+                  aria-label="Filter by status"
+                >
+                  <option value="">All statuses</option>
+                  {TICKET_STATUSES.map((status) => (
+                    <option key={status.value} value={status.value}>
+                      {status.label}
+                    </option>
+                  ))}
+                </select>
+                <select
+                  value={filters.priority}
+                  onChange={(event) => setFilters({ ...filters, priority: event.target.value })}
+                  className="filter-select"
+                  aria-label="Filter by priority"
+                >
+                  <option value="">All priorities</option>
+                  {TICKET_PRIORITIES.map((priority) => (
+                    <option key={priority.value} value={priority.value}>
+                      {priority.label}
+                    </option>
+                  ))}
+                </select>
+                <select
+                  value={filters.category}
+                  onChange={(event) => setFilters({ ...filters, category: event.target.value })}
+                  className="filter-select"
+                  aria-label="Filter by category"
+                >
+                  <option value="">All categories</option>
+                  {TICKET_CATEGORIES.map((category) => (
+                    <option key={category.value} value={category.value}>
+                      {category.label}
+                    </option>
+                  ))}
+                </select>
+              </div>
+              {hasActiveFilters && (
+                <button type="button" className="btn-text tickets-clear-filters" onClick={clearFilters}>
+                  Clear filters
+                </button>
+              )}
             </div>
 
             {loading ? (
-              <div className="state-card">Loading tickets...</div>
-            ) : tickets.length === 0 ? (
-              <div className="state-card">No tickets found</div>
-            ) : (
-              <div className="tickets-list">
-                {tickets.map((ticket) => (
-                  <div
-                    key={ticket._id}
-                    className={`ticket-list-item ${selectedTicket?._id === ticket._id ? 'selected' : ''} ${ticket.adminUnreadCount > 0 ? 'unread' : ''}`}
-                    onClick={() => loadTicket(ticket._id)}
-                  >
-                    <div className="ticket-list-header">
-                      <span className="ticket-list-subject">{ticket.subject}</span>
-                      <span className={`ticket-priority-${ticket.priority}`}>{ticket.priority}</span>
-                    </div>
-                    <div className="ticket-list-meta">
-                      <span>{ticket.customer?.name || ticket.name}</span>
-                      <span className={`ticket-status-${ticket.status}`}>{ticket.status.replace('_', ' ')}</span>
-                    </div>
-                    <div className="ticket-list-footer">
-                      <span>{ticket.category.replace('_', ' ')}</span>
-                      <span>{formatDate(ticket.lastMessageAt)}</span>
-                    </div>
+              <div className="tickets-list-loading">
+                {[1, 2, 3, 4].map((item) => (
+                  <div key={item} className="ticket-list-skeleton">
+                    <div className="shimmer-line shimmer-text shimmer-text--wide" />
+                    <div className="shimmer-line shimmer-text shimmer-text--narrow" />
                   </div>
                 ))}
+              </div>
+            ) : tickets.length === 0 ? (
+              <div className="tickets-empty-state">
+                <p className="tickets-empty-title">No tickets found</p>
+                <p className="tickets-empty-copy">
+                  {hasActiveFilters
+                    ? 'Try adjusting your filters or search.'
+                    : 'Customer support tickets will appear here when submitted.'}
+                </p>
+              </div>
+            ) : (
+              <div className="tickets-list">
+                {tickets.map((ticket) => {
+                  const isSelected = selectedTicket?._id === ticket._id;
+                  const isUnread = (ticket.adminUnreadCount || 0) > 0;
+                  const customerName = ticket.customer?.name || ticket.name || 'Customer';
+
+                  return (
+                    <button
+                      key={ticket._id}
+                      type="button"
+                      className={`ticket-list-item ${isSelected ? 'selected' : ''} ${isUnread ? 'unread' : ''}`}
+                      onClick={() => loadTicket(ticket._id)}
+                    >
+                      <div className="ticket-list-header">
+                        <span className="ticket-list-subject">{ticket.subject}</span>
+                        {isUnread && <span className="ticket-unread-dot" aria-label="Unread" />}
+                      </div>
+                      <div className="ticket-list-meta">
+                        <span className="ticket-list-customer">{customerName}</span>
+                        <span className={`ticket-badge ticket-status-${ticket.status}`}>
+                          {formatLabel(ticket.status, TICKET_STATUSES)}
+                        </span>
+                      </div>
+                      <div className="ticket-list-footer">
+                        <span className={`ticket-badge ticket-priority-${ticket.priority}`}>
+                          {formatLabel(ticket.priority, TICKET_PRIORITIES)}
+                        </span>
+                        <span>{formatDate(ticket.lastMessageAt)}</span>
+                      </div>
+                    </button>
+                  );
+                })}
               </div>
             )}
           </div>
 
-          {/* Ticket Detail */}
           <div className="ticket-detail-panel">
             {detailLoading ? (
               <div className="ticket-detail-shimmer">
-                {/* Header shimmer */}
                 <div className="shimmer-header">
-                  <div className="shimmer-line shimmer-title"></div>
+                  <div className="shimmer-line shimmer-title" />
                   <div className="shimmer-meta-row">
-                    <div className="shimmer-chip"></div>
-                    <div className="shimmer-chip shimmer-chip--wide"></div>
-                    <div className="shimmer-chip"></div>
-                    <div className="shimmer-chip shimmer-chip--narrow"></div>
+                    <div className="shimmer-chip" />
+                    <div className="shimmer-chip shimmer-chip--wide" />
+                    <div className="shimmer-chip" />
+                    <div className="shimmer-chip shimmer-chip--narrow" />
                   </div>
                 </div>
-
-                {/* Message bubbles shimmer */}
                 <div className="shimmer-messages">
                   <div className="shimmer-message shimmer-message--customer">
                     <div className="shimmer-msg-header">
-                      <div className="shimmer-line shimmer-sender"></div>
-                      <div className="shimmer-line shimmer-date"></div>
+                      <div className="shimmer-line shimmer-sender" />
+                      <div className="shimmer-line shimmer-date" />
                     </div>
-                    <div className="shimmer-line shimmer-text shimmer-text--full"></div>
-                    <div className="shimmer-line shimmer-text shimmer-text--wide"></div>
-                    <div className="shimmer-line shimmer-text shimmer-text--narrow"></div>
+                    <div className="shimmer-line shimmer-text shimmer-text--full" />
+                    <div className="shimmer-line shimmer-text shimmer-text--wide" />
                   </div>
-
                   <div className="shimmer-message shimmer-message--admin">
                     <div className="shimmer-msg-header">
-                      <div className="shimmer-line shimmer-sender"></div>
-                      <div className="shimmer-line shimmer-date"></div>
+                      <div className="shimmer-line shimmer-sender" />
+                      <div className="shimmer-line shimmer-date" />
                     </div>
-                    <div className="shimmer-line shimmer-text shimmer-text--full"></div>
-                    <div className="shimmer-line shimmer-text shimmer-text--wide"></div>
+                    <div className="shimmer-line shimmer-text shimmer-text--full" />
                   </div>
-
-                  <div className="shimmer-message shimmer-message--customer">
-                    <div className="shimmer-msg-header">
-                      <div className="shimmer-line shimmer-sender"></div>
-                      <div className="shimmer-line shimmer-date"></div>
-                    </div>
-                    <div className="shimmer-line shimmer-text shimmer-text--full"></div>
-                    <div className="shimmer-line shimmer-text shimmer-text--narrow"></div>
-                  </div>
-                </div>
-
-                {/* Reply form shimmer */}
-                <div className="shimmer-reply">
-                  <div className="shimmer-reply-selects">
-                    <div className="shimmer-select"></div>
-                    <div className="shimmer-select"></div>
-                  </div>
-                  <div className="shimmer-textarea"></div>
-                  <div className="shimmer-button"></div>
                 </div>
               </div>
             ) : selectedTicket ? (
               <>
                 <div className="ticket-detail-header">
-                  <div>
+                  <div className="ticket-detail-title-row">
                     <h2>{selectedTicket.subject}</h2>
-                    <div className="ticket-detail-meta">
-                      <span>Customer: {selectedTicket.customer?.name || selectedTicket.name}</span>
-                      <span>Email: {selectedTicket.customer?.email || selectedTicket.email}</span>
-                      {selectedTicket.order?.orderNumber && (
-                        <span>Order: {selectedTicket.order.orderNumber}</span>
-                      )}
-                      <span>Category: {selectedTicket.category?.replace(/_/g, ' ')}</span>
-                      <span>Created: {formatDate(selectedTicket.createdAt)}</span>
+                    <div className="ticket-detail-badges">
+                      <span className={`ticket-badge ticket-status-${selectedTicket.status}`}>
+                        {formatLabel(selectedTicket.status, TICKET_STATUSES)}
+                      </span>
+                      <span className={`ticket-badge ticket-priority-${selectedTicket.priority}`}>
+                        {formatLabel(selectedTicket.priority, TICKET_PRIORITIES)}
+                      </span>
                     </div>
                   </div>
+
+                  <div className="ticket-detail-meta">
+                    <div className="ticket-meta-card">
+                      <span className="ticket-meta-label">Customer</span>
+                      <span className="ticket-meta-value">
+                        {selectedTicket.customer?.name || selectedTicket.name || '—'}
+                      </span>
+                    </div>
+                    <div className="ticket-meta-card">
+                      <span className="ticket-meta-label">Email</span>
+                      <span className="ticket-meta-value">
+                        {selectedTicket.customer?.email || selectedTicket.email || '—'}
+                      </span>
+                    </div>
+                    <div className="ticket-meta-card">
+                      <span className="ticket-meta-label">Category</span>
+                      <span className="ticket-meta-value">
+                        {formatLabel(selectedTicket.category, TICKET_CATEGORIES)}
+                      </span>
+                    </div>
+                    <div className="ticket-meta-card">
+                      <span className="ticket-meta-label">Created</span>
+                      <span className="ticket-meta-value">{formatDate(selectedTicket.createdAt)}</span>
+                    </div>
+                    {selectedTicket.order?.orderNumber && (
+                      <div className="ticket-meta-card">
+                        <span className="ticket-meta-label">Order</span>
+                        <span className="ticket-meta-value">{selectedTicket.order.orderNumber}</span>
+                      </div>
+                    )}
+                  </div>
                 </div>
+
+                {actionError && <div className="alert-banner alert-error">{actionError}</div>}
+                {actionSuccess && <div className="alert-banner alert-success">{actionSuccess}</div>}
 
                 <div className="ticket-messages">
-                  {(selectedTicket.messages || []).map((msg, idx) => (
-                    <div
-                      key={idx}
-                      className={`ticket-message ${msg.messageSenderModel === 'Admin' ? 'admin-message' : 'customer-message'}`}
-                    >
-                      <div className="ticket-message-header">
-                        <span className="ticket-message-sender">
-                          {msg.messageSenderModel === 'Admin' ? 'Admin' : selectedTicket.customer?.name || 'Customer'}
-                        </span>
-                        <span className="ticket-message-date">{formatDate(msg.createdAt)}</span>
-                      </div>
-                      <div className="ticket-message-content">
-                        {(msg.message || '').split('\n').map((line, i) => (
-                          <p key={i}>{line}</p>
-                        ))}
-                      </div>
+                  {(selectedTicket.messages || []).length === 0 ? (
+                    <div className="tickets-empty-state tickets-empty-state--compact">
+                      <p className="tickets-empty-title">No messages yet</p>
                     </div>
-                  ))}
+                  ) : (
+                    (selectedTicket.messages || []).map((msg, idx) => {
+                      const isAdmin = msg.messageSenderModel === 'Admin';
+                      const senderName = isAdmin
+                        ? 'Support'
+                        : selectedTicket.customer?.name || selectedTicket.name || 'Customer';
+
+                      return (
+                        <div
+                          key={msg._id || idx}
+                          className={`ticket-message ${isAdmin ? 'admin-message' : 'customer-message'}`}
+                        >
+                          <div className="ticket-message-avatar" aria-hidden="true">
+                            {getInitials(senderName)}
+                          </div>
+                          <div className="ticket-message-body">
+                            <div className="ticket-message-header">
+                              <span className="ticket-message-sender">{senderName}</span>
+                              <span className="ticket-message-date">{formatDate(msg.createdAt)}</span>
+                            </div>
+                            <div className="ticket-message-content">
+                              {(msg.message || '').split('\n').map((line, i) => (
+                                <p key={i}>{line || '\u00A0'}</p>
+                              ))}
+                            </div>
+                          </div>
+                        </div>
+                      );
+                    })
+                  )}
                 </div>
 
-                {selectedTicket.status !== 'closed' && (
-                  <div className="ticket-reply-form">
-                    <form onSubmit={handleSubmitReply}>
-                      <div className="reply-form-fields">
+                {selectedTicket.status === 'closed' ? (
+                  <div className="ticket-closed-banner">This ticket is closed. Reopen it by changing the status below if needed.</div>
+                ) : null}
+
+                <div className="ticket-reply-form">
+                  <form onSubmit={handleSubmitReply}>
+                    <div className="reply-form-fields">
+                      <label className="reply-field">
+                        <span>Status</span>
                         <select
                           value={replyStatus}
-                          onChange={(e) => setReplyStatus(e.target.value)}
+                          onChange={(event) => setReplyStatus(event.target.value)}
                           className="reply-select"
                         >
-                          {TICKET_STATUSES.map(status => (
-                            <option key={status} value={status}>{status.replace(/_/g, ' ')}</option>
+                          {TICKET_STATUSES.map((status) => (
+                            <option key={status.value} value={status.value}>
+                              {status.label}
+                            </option>
                           ))}
                         </select>
+                      </label>
+                      <label className="reply-field">
+                        <span>Priority</span>
                         <select
                           value={replyPriority}
-                          onChange={(e) => setReplyPriority(e.target.value)}
+                          onChange={(event) => setReplyPriority(event.target.value)}
                           className="reply-select"
                         >
-                          {TICKET_PRIORITIES.map(priority => (
-                            <option key={priority} value={priority}>{priority}</option>
+                          {TICKET_PRIORITIES.map((priority) => (
+                            <option key={priority.value} value={priority.value}>
+                              {priority.label}
+                            </option>
                           ))}
                         </select>
-                      </div>
-                      <textarea
-                        value={reply}
-                        onChange={(e) => setReply(e.target.value)}
-                        placeholder="Type your reply..."
-                        rows={4}
-                        className="reply-textarea"
-                      />
-                      <button
-                        type="submit"
-                        className="btn-primary"
-                        disabled={submitting}
-                      >
-                        {submitting ? 'Sending...' : 'Send Reply'}
+                      </label>
+                    </div>
+                    <textarea
+                      value={reply}
+                      onChange={(event) => setReply(event.target.value)}
+                      placeholder={
+                        selectedTicket.status === 'closed'
+                          ? 'Add an internal note or reopen with a reply…'
+                          : 'Type your reply to the customer…'
+                      }
+                      rows={4}
+                      className="reply-textarea"
+                    />
+                    <div className="reply-actions">
+                      <button type="submit" className="btn-primary" disabled={submitting}>
+                        {submitting ? 'Sending…' : reply.trim() ? 'Send Reply' : 'Update Ticket'}
                       </button>
-                    </form>
-                  </div>
-                )}
+                    </div>
+                  </form>
+                </div>
               </>
             ) : (
-              <div className="state-card">Select a ticket to view details</div>
+              <div className="tickets-empty-state tickets-empty-state--panel">
+                <p className="tickets-empty-title">Select a ticket</p>
+                <p className="tickets-empty-copy">
+                  Choose a conversation from the list to read messages and reply.
+                </p>
+              </div>
             )}
           </div>
         </div>
