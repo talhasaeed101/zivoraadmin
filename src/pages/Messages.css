@@ -328,11 +328,13 @@
   text-transform: capitalize;
 }
 
+.ticket-status-new,
 .ticket-status-open {
   background: #f3ebe3;
   color: #8a5d3d;
 }
 
+.ticket-status-read,
 .ticket-status-in_progress {
   background: #f8efd9;
   color: #9a6f1d;
@@ -343,6 +345,7 @@
   color: #a1443a;
 }
 
+.ticket-status-replied,
 .ticket-status-resolved {
   background: #e8f3eb;
   color: #3f7a4d;
@@ -351,6 +354,28 @@
 .ticket-status-closed {
   background: #efefef;
   color: #666;
+}
+
+.ticket-list-preview {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  max-width: 58%;
+}
+
+.reply-actions-row {
+  display: flex;
+  gap: 10px;
+  margin-bottom: 14px;
+}
+
+.ticket-meta-value a {
+  color: #967259;
+  text-decoration: none;
+}
+
+.ticket-meta-value a:hover {
+  text-decoration: underline;
 }
 
 .ticket-priority-low {

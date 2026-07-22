@@ -12,6 +12,7 @@ const navLinks = [
   { label: 'Customers', to: '/customers' },
   { label: 'Reviews', to: '/reviews' },
   { label: 'Promo Codes', to: '/promo-codes' },
+  { label: 'Tickets', to: '/tickets' },
   { label: 'Messages', to: '/messages' },
   { label: 'Newsletter', to: '/newsletter' },
 ];

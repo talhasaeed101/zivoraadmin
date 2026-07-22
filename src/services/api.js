@@ -163,6 +163,12 @@ export const orderApi = {
       method: 'PATCH',
       body: JSON.stringify(payload),
     }),
+
+  updateOrderShipping: (id, payload) =>
+    request(`/admin/orders/${id}/shipping`, {
+      method: 'PATCH',
+      body: JSON.stringify(payload),
+    }),
 };
 
 export const reviewApi = {

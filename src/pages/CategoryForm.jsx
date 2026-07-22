@@ -113,7 +113,6 @@ export default function CategoryForm() {
 
       try {
         const response = await uploadApi.uploadCategoryImage(imageFile);
-        console.log(response.data);
         imageUrl = response.data?.url || '';
       } catch (err) {
         setUploadError(err.message || 'Failed to upload image');

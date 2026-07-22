@@ -84,7 +84,7 @@ export default function Login() {
               type="email"
               value={email}
               onChange={(e) => setEmail(e.target.value)}
-              placeholder="admin.secure981@zivorah.store"
+              placeholder="you@example.com"
               autoComplete="email"
               disabled={loading}
             />
@@ -119,10 +119,6 @@ export default function Login() {
           <button type="submit" className="login-submit" disabled={loading}>
             {loading ? 'Signing in...' : 'Sign in'}
           </button>
-{/* 
-          <p className="login-hint">
-            Test credentials: <strong>admin@zivora.com</strong> / <strong>12345678</strong>
-          </p> */}
         </form>
       </div>
     </div>

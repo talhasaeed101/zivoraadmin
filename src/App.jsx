@@ -18,6 +18,7 @@ import ReviewDetails from './pages/ReviewDetails.jsx';
 import PromoCodes from './pages/PromoCodes.jsx';
 import PromoCodeForm from './pages/PromoCodeForm.jsx';
 import Messages from './pages/Messages.jsx';
+import Tickets from './pages/Tickets.jsx';
 import Newsletter from './pages/Newsletter.jsx';
 
 export default function App() {
@@ -45,6 +46,7 @@ export default function App() {
               <Route path="/promo-codes" element={<PromoCodes />} />
               <Route path="/promo-codes/new" element={<PromoCodeForm />} />
               <Route path="/promo-codes/:id/edit" element={<PromoCodeForm />} />
+              <Route path="/tickets" element={<Tickets />} />
               <Route path="/messages" element={<Messages />} />
               <Route path="/newsletter" element={<Newsletter />} />
             </Route>

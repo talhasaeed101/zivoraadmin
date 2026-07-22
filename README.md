@@ -52,14 +52,16 @@ npm run build
 npm run preview
 ```
 
-## Default Admin Login
+## Admin Login
 
-| Field | Value |
-|-------|-------|
-| Email | `admin@zivora.com` |
-| Password | `12345678` |
+Create the first admin with the backend seeder (requires environment variables):
 
-JWT is stored in `localStorage` as `zivora_admin_token`.
+```bash
+cd ../zivorabackend
+SEED_ADMIN_EMAIL=you@example.com SEED_ADMIN_PASSWORD='your-strong-password' npm run seed:admin
+```
+
+Do not commit real credentials. JWT is stored in `localStorage` as `zivora_admin_token` (prefer httpOnly cookies in a future hardening pass).
 
 ## Admin Modules
 

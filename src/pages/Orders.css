@@ -216,6 +216,74 @@
   max-width: none;
 }
 
+.shipping-tracking-card {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+
+.shipping-summary-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
+  gap: 12px;
+}
+
+.shipping-action-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  align-items: center;
+}
+
+.shipping-copy-feedback {
+  font-family: Inter, Arial, sans-serif;
+  font-size: 13px;
+  color: #5e9e6e;
+}
+
+.shipping-form {
+  margin-top: 4px;
+}
+
+.shipment-timeline {
+  margin-top: 8px;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.shipment-timeline-title {
+  margin: 0;
+  font-family: Georgia, 'Times New Roman', serif;
+  font-size: 18px;
+  font-weight: 400;
+}
+
+.shipment-timeline-item {
+  padding: 12px 14px;
+  border: 1px solid #e8dfd4;
+  border-radius: 8px;
+  background: #faf8f5;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.shipment-timeline-item strong {
+  color: #1a1a1a;
+}
+
+.shipment-timeline-item span {
+  font-size: 13px;
+  color: #777;
+}
+
+.shipment-timeline-item p {
+  margin: 6px 0 0;
+  font-size: 14px;
+  color: #444;
+}
+
 @media (max-width: 900px) {
   .order-detail-grid {
     grid-template-columns: 1fr;

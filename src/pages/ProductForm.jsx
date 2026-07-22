@@ -354,15 +354,7 @@ export default function ProductForm() {
         setPendingFiles((prev) => prev.map(f => f.id === imageId ? { ...f, status: PendingImageStatus.VERIFYING } : f));
       }
       
-      console.log("[Upload verify request]", {
-        imageId,
-        objectKey,
-        expectedSize: optimizedFile.size
-      });
-      
       const verifyResponse = await uploadApi.verifyProductImageUpload(objectKey, optimizedFile.size);
-      
-      console.log("[Upload verify response]", verifyResponse);
 
       // Step 5: Success
       if (isMountedRef.current) {
