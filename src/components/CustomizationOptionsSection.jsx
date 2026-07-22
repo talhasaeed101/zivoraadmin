@@ -1,11 +1,4 @@
-import {
-  BIRTHSTONE_OPTIONS,
-  CHAIN_LENGTH_OPTIONS,
-  FONT_OPTIONS,
-  JEWELRY_COLOR_OPTIONS,
-  MATERIAL_OPTIONS,
-  SYMBOL_OPTIONS,
-} from '../constants/customization.js';
+import { FONT_PREVIEW_CLASSES, slugifyOptionId } from '../constants/customization.js';
 
 function SectionCard({ title, enabled, onToggleEnabled, disabled, children }) {
   return (
@@ -26,30 +19,99 @@ function SectionCard({ title, enabled, onToggleEnabled, disabled, children }) {
   );
 }
 
-function OptionCheckboxGroup({ catalog, selected = [], onChange, disabled, getId = (item) => item.id, getLabel = (item) => item.label || item }) {
-  return (
-    <div className="customization-checkbox-grid">
-      {catalog.map((item) => {
-        const id = getId(item);
-        const label = getLabel(item);
+function EditableOptionsEditor({
+  items = [],
+  fields,
+  onChange,
+  disabled,
+  addLabel,
+  createItem,
+}) {
+  const updateItem = (index, patch) => {
+    onChange(
+      items.map((item, itemIndex) => {
+        if (itemIndex !== index) return item;
+        const next = { ...item, ...patch };
+        if (patch.label && !item.idLocked) {
+          next.id = slugifyOptionId(patch.label, item.id || 'option');
+        }
+        return next;
+      })
+    );
+  };
 
-        return (
-          <label key={id} className="admin-form-checkbox customization-option-item">
-            <input
-              type="checkbox"
-              checked={selected.includes(id)}
-              onChange={() => {
-                const next = selected.includes(id)
-                  ? selected.filter((value) => value !== id)
-                  : [...selected, id];
-                onChange(next);
-              }}
-              disabled={disabled}
-            />
-            {label}
-          </label>
-        );
-      })}
+  const removeItem = (index) => {
+    onChange(items.filter((_, itemIndex) => itemIndex !== index));
+  };
+
+  const addItem = () => {
+    onChange([...items, createItem(items.length)]);
+  };
+
+  return (
+    <div className="customization-editable-list">
+      {items.length === 0 ? (
+        <p className="field-hint">No options yet. Add the choices customers should see.</p>
+      ) : null}
+
+      {items.map((item, index) => (
+        <div key={item.id || index} className="customization-editable-row">
+          <div className="customization-editable-fields">
+            {fields.map((field) => (
+              <div key={field.key} className="admin-form-field customization-editable-field">
+                <label>{field.label}</label>
+                {field.type === 'select' ? (
+                  <select
+                    value={item[field.key] || field.defaultValue || ''}
+                    onChange={(event) => updateItem(index, { [field.key]: event.target.value })}
+                    disabled={disabled}
+                  >
+                    {field.options.map((option) => (
+                      <option key={option.value} value={option.value}>
+                        {option.label}
+                      </option>
+                    ))}
+                  </select>
+                ) : (
+                  <input
+                    type={field.type || 'text'}
+                    min={field.min}
+                    step={field.step}
+                    value={
+                      field.type === 'color'
+                        ? /^#[0-9A-Fa-f]{6}$/.test(String(item[field.key] || ''))
+                          ? item[field.key]
+                          : field.defaultValue || '#967259'
+                        : (item[field.key] ?? field.defaultValue ?? '')
+                    }
+                    onChange={(event) => {
+                      const value =
+                        field.type === 'number'
+                          ? Number(event.target.value) || 0
+                          : event.target.value;
+                      updateItem(index, { [field.key]: value });
+                    }}
+                    disabled={disabled}
+                    placeholder={field.placeholder}
+                  />
+                )}
+              </div>
+            ))}
+          </div>
+          <button
+            type="button"
+            className="customization-remove-btn"
+            onClick={() => removeItem(index)}
+            disabled={disabled}
+          >
+            Remove
+          </button>
+        </div>
+      ))}
+
+      <button type="button" className="customization-add-btn" onClick={addItem} disabled={disabled}>
+        {addLabel}
+      </button>
     </div>
   );
 }
@@ -65,47 +127,17 @@ export default function CustomizationOptionsSection({ options, onChange, disable
     });
   };
 
-  const updateGiftOption = (giftId, patch) => {
-    const giftOptions = (options.giftOptions?.options || []).map((gift) =>
-      gift.id === giftId ? { ...gift, ...patch } : gift
-    );
-
-    updateSection('giftOptions', { options: giftOptions });
+  const updateOptionsList = (sectionKey, nextOptions) => {
+    updateSection(sectionKey, { options: nextOptions });
   };
-
-  const toggleGiftOptionEnabled = (giftId, enabled) => {
-    const current = options.giftOptions?.options || [];
-    const exists = current.some((gift) => gift.id === giftId);
-
-    if (!exists && enabled) {
-      const defaults = {
-        'premium-gift-box': { id: 'premium-gift-box', label: 'Premium Gift Box', price: 299 },
-        'greeting-card': { id: 'greeting-card', label: 'Greeting Card', price: 99 },
-        'luxury-packaging': { id: 'luxury-packaging', label: 'Luxury Packaging', price: 199 },
-      };
-      updateSection('giftOptions', { options: [...current, defaults[giftId]] });
-      return;
-    }
-
-    if (!enabled) {
-      updateSection('giftOptions', {
-        options: current.filter((gift) => gift.id !== giftId),
-      });
-    }
-  };
-
-  const allGiftDefinitions = [
-    { id: 'premium-gift-box', label: 'Premium Gift Box', price: 299 },
-    { id: 'greeting-card', label: 'Greeting Card', price: 99 },
-    { id: 'luxury-packaging', label: 'Luxury Packaging', price: 199 },
-  ];
 
   return (
     <div className="customization-settings-section">
       <div className="customization-settings-intro">
         <h3 className="customization-settings-title">Customization Settings</h3>
         <p className="field-hint">
-          Choose which options customers can configure on the storefront customization modal.
+          Enable sections and fully edit the options customers can choose (fonts, colors, lengths,
+          gifts, and more).
         </p>
       </div>
 
@@ -180,11 +212,26 @@ export default function CustomizationOptionsSection({ options, onChange, disable
           onToggleEnabled={(enabled) => updateSection('fontSelection', { enabled })}
           disabled={disabled}
         >
-          <OptionCheckboxGroup
-            catalog={FONT_OPTIONS}
-            selected={options.fontSelection?.options || []}
-            onChange={(next) => updateSection('fontSelection', { options: next })}
+          <EditableOptionsEditor
+            items={options.fontSelection?.options || []}
+            onChange={(next) => updateOptionsList('fontSelection', next)}
             disabled={disabled}
+            addLabel="Add font"
+            createItem={(index) => ({
+              id: `font-${index + 1}`,
+              label: `Font ${index + 1}`,
+              previewClass: 'cm-font-luxury-serif',
+            })}
+            fields={[
+              { key: 'label', label: 'Font name', placeholder: 'e.g. Elegant Script' },
+              {
+                key: 'previewClass',
+                label: 'Preview style',
+                type: 'select',
+                options: FONT_PREVIEW_CLASSES,
+                defaultValue: 'cm-font-luxury-serif',
+              },
+            ]}
           />
         </SectionCard>
 
@@ -194,13 +241,16 @@ export default function CustomizationOptionsSection({ options, onChange, disable
           onToggleEnabled={(enabled) => updateSection('materialSelection', { enabled })}
           disabled={disabled}
         >
-          <OptionCheckboxGroup
-            catalog={MATERIAL_OPTIONS}
-            selected={options.materialSelection?.options || []}
-            onChange={(next) => updateSection('materialSelection', { options: next })}
+          <EditableOptionsEditor
+            items={options.materialSelection?.options || []}
+            onChange={(next) => updateOptionsList('materialSelection', next)}
             disabled={disabled}
-            getId={(item) => item}
-            getLabel={(item) => item}
+            addLabel="Add material"
+            createItem={(index) => ({
+              id: `material-${index + 1}`,
+              label: `Material ${index + 1}`,
+            })}
+            fields={[{ key: 'label', label: 'Material name', placeholder: 'e.g. Sterling Silver' }]}
           />
         </SectionCard>
 
@@ -210,11 +260,20 @@ export default function CustomizationOptionsSection({ options, onChange, disable
           onToggleEnabled={(enabled) => updateSection('jewelryColor', { enabled })}
           disabled={disabled}
         >
-          <OptionCheckboxGroup
-            catalog={JEWELRY_COLOR_OPTIONS}
-            selected={options.jewelryColor?.options || []}
-            onChange={(next) => updateSection('jewelryColor', { options: next })}
+          <EditableOptionsEditor
+            items={options.jewelryColor?.options || []}
+            onChange={(next) => updateOptionsList('jewelryColor', next)}
             disabled={disabled}
+            addLabel="Add color"
+            createItem={(index) => ({
+              id: `color-${index + 1}`,
+              label: `Color ${index + 1}`,
+              color: '#967259',
+            })}
+            fields={[
+              { key: 'label', label: 'Color name', placeholder: 'e.g. Rose Gold' },
+              { key: 'color', label: 'Swatch hex', type: 'color', defaultValue: '#967259' },
+            ]}
           />
         </SectionCard>
 
@@ -224,13 +283,16 @@ export default function CustomizationOptionsSection({ options, onChange, disable
           onToggleEnabled={(enabled) => updateSection('chainLength', { enabled })}
           disabled={disabled}
         >
-          <OptionCheckboxGroup
-            catalog={CHAIN_LENGTH_OPTIONS}
-            selected={options.chainLength?.options || []}
-            onChange={(next) => updateSection('chainLength', { options: next })}
+          <EditableOptionsEditor
+            items={options.chainLength?.options || []}
+            onChange={(next) => updateOptionsList('chainLength', next)}
             disabled={disabled}
-            getId={(item) => item}
-            getLabel={(item) => item}
+            addLabel="Add length"
+            createItem={(index) => ({
+              id: `length-${index + 1}`,
+              label: `${40 + index * 5} cm`,
+            })}
+            fields={[{ key: 'label', label: 'Length label', placeholder: 'e.g. 45 cm' }]}
           />
         </SectionCard>
 
@@ -297,11 +359,22 @@ export default function CustomizationOptionsSection({ options, onChange, disable
           onToggleEnabled={(enabled) => updateSection('birthstone', { enabled })}
           disabled={disabled}
         >
-          <OptionCheckboxGroup
-            catalog={BIRTHSTONE_OPTIONS}
-            selected={options.birthstone?.options || []}
-            onChange={(next) => updateSection('birthstone', { options: next })}
+          <EditableOptionsEditor
+            items={options.birthstone?.options || []}
+            onChange={(next) => updateOptionsList('birthstone', next)}
             disabled={disabled}
+            addLabel="Add birthstone"
+            createItem={(index) => ({
+              id: `stone-${index + 1}`,
+              label: `Stone ${index + 1}`,
+              month: 'Jan',
+              color: '#967259',
+            })}
+            fields={[
+              { key: 'label', label: 'Stone name', placeholder: 'e.g. Garnet' },
+              { key: 'month', label: 'Month', placeholder: 'e.g. Jan' },
+              { key: 'color', label: 'Swatch hex', type: 'color', defaultValue: '#967259' },
+            ]}
           />
         </SectionCard>
 
@@ -311,11 +384,20 @@ export default function CustomizationOptionsSection({ options, onChange, disable
           onToggleEnabled={(enabled) => updateSection('symbols', { enabled })}
           disabled={disabled}
         >
-          <OptionCheckboxGroup
-            catalog={SYMBOL_OPTIONS}
-            selected={options.symbols?.options || []}
-            onChange={(next) => updateSection('symbols', { options: next })}
+          <EditableOptionsEditor
+            items={options.symbols?.options || []}
+            onChange={(next) => updateOptionsList('symbols', next)}
             disabled={disabled}
+            addLabel="Add symbol"
+            createItem={(index) => ({
+              id: `symbol-${index + 1}`,
+              label: `Symbol ${index + 1}`,
+              icon: '★',
+            })}
+            fields={[
+              { key: 'label', label: 'Symbol name', placeholder: 'e.g. Heart' },
+              { key: 'icon', label: 'Icon / emoji', placeholder: 'e.g. ♥' },
+            ]}
           />
         </SectionCard>
 
@@ -325,41 +407,21 @@ export default function CustomizationOptionsSection({ options, onChange, disable
           onToggleEnabled={(enabled) => updateSection('giftOptions', { enabled })}
           disabled={disabled}
         >
-          <div className="customization-gift-list">
-            {allGiftDefinitions.map((giftDef) => {
-              const activeGift = (options.giftOptions?.options || []).find(
-                (gift) => gift.id === giftDef.id
-              );
-              const isEnabled = Boolean(activeGift);
-
-              return (
-                <div key={giftDef.id} className="customization-gift-row">
-                  <label className="admin-form-checkbox">
-                    <input
-                      type="checkbox"
-                      checked={isEnabled}
-                      onChange={(event) => toggleGiftOptionEnabled(giftDef.id, event.target.checked)}
-                      disabled={disabled}
-                    />
-                    {giftDef.label}
-                  </label>
-                  {isEnabled && (
-                    <input
-                      type="number"
-                      min="0"
-                      className="customization-gift-price-input"
-                      value={activeGift?.price ?? giftDef.price}
-                      onChange={(event) =>
-                        updateGiftOption(giftDef.id, { price: Number(event.target.value) || 0 })
-                      }
-                      disabled={disabled}
-                      aria-label={`${giftDef.label} price`}
-                    />
-                  )}
-                </div>
-              );
+          <EditableOptionsEditor
+            items={options.giftOptions?.options || []}
+            onChange={(next) => updateOptionsList('giftOptions', next)}
+            disabled={disabled}
+            addLabel="Add gift option"
+            createItem={(index) => ({
+              id: `gift-${index + 1}`,
+              label: `Gift option ${index + 1}`,
+              price: 0,
             })}
-          </div>
+            fields={[
+              { key: 'label', label: 'Gift name', placeholder: 'e.g. Premium Gift Box' },
+              { key: 'price', label: 'Price (PKR)', type: 'number', min: 0, defaultValue: 0 },
+            ]}
+          />
         </SectionCard>
 
         <SectionCard

@@ -269,6 +269,64 @@
   background: #fafafa;
 }
 
+.customization-editable-list {
+  display: grid;
+  gap: 12px;
+}
+
+.customization-editable-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 12px;
+  align-items: end;
+  padding: 12px;
+  border: 1px solid #eee;
+  background: #fafafa;
+}
+
+.customization-editable-fields {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
+  gap: 10px;
+}
+
+.customization-editable-field {
+  margin: 0;
+}
+
+.customization-editable-field input[type='color'] {
+  min-height: 40px;
+  padding: 4px;
+}
+
+.customization-add-btn,
+.customization-remove-btn {
+  border: 1px solid #d8c7b5;
+  background: #fff;
+  color: #5c4a3a;
+  padding: 8px 12px;
+  font-family: Inter, sans-serif;
+  font-size: 13px;
+  cursor: pointer;
+}
+
+.customization-add-btn {
+  justify-self: start;
+  border-color: #967259;
+  color: #967259;
+}
+
+.customization-add-btn:hover:not(:disabled),
+.customization-remove-btn:hover:not(:disabled) {
+  background: #f5efe9;
+}
+
+.customization-add-btn:disabled,
+.customization-remove-btn:disabled {
+  opacity: 0.55;
+  cursor: not-allowed;
+}
+
 .customization-gift-list {
   display: grid;
   gap: 10px;

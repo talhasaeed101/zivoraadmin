@@ -409,7 +409,10 @@ export default function OrderDetails() {
                               {item.sku && <span className="order-item-sku">{item.sku}</span>}
                               {item.isCustomized && (
                                 <ul className="order-customization-list">
-                                  {buildCustomizationSummaryLines(item.customization).map((line) => (
+                                  {buildCustomizationSummaryLines(
+                                    item.customization,
+                                    item.product?.customizationOptions
+                                  ).map((line) => (
                                     <li key={`${line.label}-${line.value}`}>
                                       <strong>{line.label}:</strong> {line.value}
                                     </li>

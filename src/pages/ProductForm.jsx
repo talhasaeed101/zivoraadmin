@@ -630,7 +630,7 @@ export default function ProductForm() {
         isNewArrival: form.isNewArrival,
         isCustomizable: form.isCustomizable,
         customizationOptions: form.isCustomizable
-          ? form.customizationOptions
+          ? mergeCustomizationOptions(form.customizationOptions)
           : getDefaultCustomizationOptions(),
         status: form.status,
         variationGroups: addVariations
