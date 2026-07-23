@@ -846,73 +846,152 @@ export default function ProductForm() {
 
                 {(imageUrls.length > 0 || pendingFiles.length > 0) && (
                   <div className="image-preview-grid">
-                    {imageUrls.map((url, index) => (
-                      <div key={`${url}-${index}`} className="image-preview-card">
-                        <img src={url} alt={`Product ${index + 1}`} className="image-preview" />
-                        <span className="image-preview-badge">Uploaded</span>
-                        <button
-                          type="button"
-                          className="btn-text btn-text-danger"
-                          onClick={() => handleRemoveUploadedImage(index)}
-                          disabled={saving || isProcessing}
-                        >
-                          Remove
-                        </button>
-                      </div>
-                    ))}
-                    {pendingFiles.map((item) => (
-                    <div key={item.id} className={`image-preview-card ${
-                      item.status === PendingImageStatus.OPTIMIZING ||
-                      item.status === PendingImageStatus.REQUESTING_URL ||
-                      item.status === PendingImageStatus.UPLOADING ||
-                      item.status === PendingImageStatus.VERIFYING
-                        ? 'image-preview-pending'
-                        : item.status === PendingImageStatus.ERROR
-                        ? 'image-preview-error'
-                        : item.status === PendingImageStatus.SUCCESS
-                        ? 'image-preview-success'
-                        : ''
-                    }`}>
-                      <img src={item.previewUrl} alt={item.file.name} className="image-preview" />
-                      <span className="image-preview-label">
-                        {(() => {
-                          switch (item.status) {
-                            case PendingImageStatus.PENDING: return "PENDING...";
-                            case PendingImageStatus.OPTIMIZING: return "OPTIMIZING...";
-                            case PendingImageStatus.REQUESTING_URL: return "REQUESTING URL...";
-                            case PendingImageStatus.UPLOADING: return "UPLOADING...";
-                            case PendingImageStatus.VERIFYING: return "VERIFYING...";
-                            case PendingImageStatus.SUCCESS: return "UPLOADED";
-                            case PendingImageStatus.ERROR: return "FAILED";
-                            default: return "UNKNOWN STATUS";
+                    {/* Combine both arrays with metadata so they can be reordered together */}
+                    {[
+                      ...imageUrls.map((url, index) => ({
+                        id: `uploaded-${index}`,
+                        type: 'uploaded',
+                        url,
+                        index,
+                      })),
+                      ...pendingFiles.map((item, index) => ({
+                        id: item.id || `pending-${index}`,
+                        type: 'pending',
+                        item,
+                        index,
+                      })),
+                    ].map((media, displayIndex, allItems) => {
+                      const handleDragStart = (e) => {
+                        e.dataTransfer.setData('text/plain', displayIndex.toString());
+                        e.currentTarget.classList.add('dragging');
+                      };
+
+                      const handleDragEnd = (e) => {
+                        e.currentTarget.classList.remove('dragging');
+                      };
+
+                      const handleDragOver = (e) => {
+                        e.preventDefault();
+                      };
+
+                      const handleDrop = (e) => {
+                        e.preventDefault();
+                        const sourceIndex = parseInt(e.dataTransfer.getData('text/plain'), 10);
+                        if (isNaN(sourceIndex) || sourceIndex === displayIndex) return;
+
+                        // Create a copy of the unified list
+                        const reordered = [...allItems];
+                        // Remove the item from source
+                        const [movedItem] = reordered.splice(sourceIndex, 1);
+                        // Insert the item at destination
+                        reordered.splice(displayIndex, 0, movedItem);
+
+                        // Separate back into original state arrays
+                        const nextImageUrls = [];
+                        const nextPendingFiles = [];
+
+                        reordered.forEach((x) => {
+                          if (x.type === 'uploaded') {
+                            nextImageUrls.push(x.url);
+                          } else {
+                            nextPendingFiles.push(x.item);
                           }
-                        })()}
-                      </span>
-                      {item.status === PendingImageStatus.ERROR && (
-                        <span className="text-xs text-red-500 mt-1">{item.error}</span>
-                      )}
-                      <div className="flex gap-2 mt-2">
-                        {item.status === PendingImageStatus.ERROR && (
-                          <button
-                            type="button"
-                            className="btn-text btn-text-primary"
-                            onClick={() => handleRetryPendingFile(item.id)}
-                            disabled={saving || isProcessing}
+                        });
+
+                        setImageUrls(nextImageUrls);
+                        setPendingFiles(nextPendingFiles);
+                      };
+
+                      if (media.type === 'uploaded') {
+                        return (
+                          <div
+                            key={media.id}
+                            className="image-preview-card"
+                            draggable
+                            onDragStart={handleDragStart}
+                            onDragEnd={handleDragEnd}
+                            onDragOver={handleDragOver}
+                            onDrop={handleDrop}
+                            style={{ cursor: 'move' }}
                           >
-                            Retry
-                          </button>
-                        )}
-                        <button
-                          type="button"
-                          className="btn-text btn-text-danger"
-                          onClick={() => handleRemovePendingFile(item.id)}
-                          disabled={saving || isProcessing}
-                        >
-                          Remove
-                        </button>
-                      </div>
-                    </div>
-                  ))}
+                            <img src={media.url} alt={`Product ${media.index + 1}`} className="image-preview" />
+                            <span className="image-preview-badge">Uploaded</span>
+                            <button
+                              type="button"
+                              className="btn-text btn-text-danger"
+                              onClick={() => handleRemoveUploadedImage(media.index)}
+                              disabled={saving || isProcessing}
+                            >
+                              Remove
+                            </button>
+                          </div>
+                        );
+                      } else {
+                        const { item } = media;
+                        return (
+                          <div
+                            key={media.id}
+                            className={`image-preview-card ${
+                              item.status === PendingImageStatus.OPTIMIZING ||
+                              item.status === PendingImageStatus.REQUESTING_URL ||
+                              item.status === PendingImageStatus.UPLOADING ||
+                              item.status === PendingImageStatus.VERIFYING
+                                ? 'image-preview-pending'
+                                : item.status === PendingImageStatus.ERROR
+                                ? 'image-preview-error'
+                                : item.status === PendingImageStatus.SUCCESS
+                                ? 'image-preview-success'
+                                : ''
+                            }`}
+                            draggable
+                            onDragStart={handleDragStart}
+                            onDragEnd={handleDragEnd}
+                            onDragOver={handleDragOver}
+                            onDrop={handleDrop}
+                            style={{ cursor: 'move' }}
+                          >
+                            <img src={item.previewUrl} alt={item.file.name} className="image-preview" />
+                            <span className="image-preview-label">
+                              {(() => {
+                                switch (item.status) {
+                                  case PendingImageStatus.PENDING: return "PENDING...";
+                                  case PendingImageStatus.OPTIMIZING: return "OPTIMIZING...";
+                                  case PendingImageStatus.REQUESTING_URL: return "REQUESTING URL...";
+                                  case PendingImageStatus.UPLOADING: return "UPLOADING...";
+                                  case PendingImageStatus.VERIFYING: return "VERIFYING...";
+                                  case PendingImageStatus.SUCCESS: return "UPLOADED";
+                                  case PendingImageStatus.ERROR: return "FAILED";
+                                  default: return "UNKNOWN STATUS";
+                                }
+                              })()}
+                            </span>
+                            {item.status === PendingImageStatus.ERROR && (
+                              <span className="text-xs text-red-500 mt-1">{item.error}</span>
+                            )}
+                            <div className="flex gap-2 mt-2">
+                              {item.status === PendingImageStatus.ERROR && (
+                                <button
+                                  type="button"
+                                  className="btn-text btn-text-primary"
+                                  onClick={() => handleRetryPendingFile(item.id)}
+                                  disabled={saving || isProcessing}
+                                >
+                                  Retry
+                                </button>
+                              )}
+                              <button
+                                type="button"
+                                className="btn-text btn-text-danger"
+                                onClick={() => handleRemovePendingFile(item.id)}
+                                disabled={saving || isProcessing}
+                              >
+                                Remove
+                              </button>
+                            </div>
+                          </div>
+                        );
+                      }
+                    })}
                   </div>
                 )}
 
