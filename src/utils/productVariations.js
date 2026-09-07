@@ -56,9 +56,21 @@ export const deriveLegacyFieldsFromVariations = (variationGroups = []) => {
     /color|metal/i.test(group.name || '')
   );
 
+  const metalColors = (colorGroup?.options || [])
+    .map((option) => String(option || '').trim())
+    .filter(Boolean)
+    .map((option) => {
+      const key = option.toLowerCase();
+      if (key === 'gold') return 'Gold';
+      if (key === 'silver') return 'Silver';
+      return null;
+    })
+    .filter(Boolean)
+    .filter((value, index, arr) => arr.indexOf(value) === index);
+
   return {
     ringSizes: ringGroup?.options?.filter(Boolean) || [],
-    metalColors: colorGroup?.options?.filter(Boolean) || [],
+    metalColors,
   };
 };
 

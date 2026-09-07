@@ -571,6 +571,13 @@
   white-space: nowrap;
 }
 
+.product-toggle-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px;
+  margin-top: 6px;
+}
+
 .product-toggle input {
   accent-color: #967259;
 }

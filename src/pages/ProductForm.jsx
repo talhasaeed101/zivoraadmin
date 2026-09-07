@@ -32,7 +32,7 @@ const createDefaultForm = () => ({
   sku: '',
   stock: 0,
   ringSizes: '',
-  metalColors: '',
+  metalColors: [],
   material: '',
   tags: '',
   isFeatured: false,
@@ -190,7 +190,17 @@ export default function ProductForm() {
           sku: product.sku || '',
           stock: product.stock ?? 0,
           ringSizes: joinCommaList(product.ringSizes),
-          metalColors: joinCommaList(product.metalColors),
+          metalColors: Array.isArray(product.metalColors)
+            ? product.metalColors
+                .map((color) => {
+                  const key = String(color || '').trim().toLowerCase();
+                  if (key === 'gold') return 'Gold';
+                  if (key === 'silver') return 'Silver';
+                  return null;
+                })
+                .filter(Boolean)
+                .filter((value, index, arr) => arr.indexOf(value) === index)
+            : [],
           material: product.material || '',
           tags: joinCommaList(product.tags),
           isFeatured: Boolean(product.isFeatured),
@@ -606,7 +616,7 @@ export default function ProductForm() {
         ? deriveLegacyFieldsFromVariations(variationGroups)
         : {
             ringSizes: showRingSizes ? parseCommaList(form.ringSizes) : [],
-            metalColors: parseCommaList(form.metalColors),
+            metalColors: Array.isArray(form.metalColors) ? form.metalColors : [],
           };
 
       const payload = {
@@ -1461,16 +1471,32 @@ export default function ProductForm() {
                       </div>
                     )}
                     <div className="admin-form-field">
-                      <label htmlFor="metalColors">Metal Colors</label>
-                      <input
-                        id="metalColors"
-                        name="metalColors"
-                        type="text"
-                        value={form.metalColors}
-                        onChange={handleChange}
-                        disabled={saving}
-                        placeholder="gold, rose-gold, silver"
-                      />
+                      <span>Metal Colors</span>
+                      <div className="product-toggle-row">
+                        {['Gold', 'Silver'].map((color) => {
+                          const checked = Array.isArray(form.metalColors) && form.metalColors.includes(color);
+                          return (
+                            <label key={color} className="product-toggle">
+                              <input
+                                type="checkbox"
+                                checked={checked}
+                                disabled={saving || isProcessing}
+                                onChange={(event) => {
+                                  setForm((prev) => {
+                                    const current = Array.isArray(prev.metalColors) ? prev.metalColors : [];
+                                    const next = event.target.checked
+                                      ? [...current.filter((c) => c !== color), color]
+                                      : current.filter((c) => c !== color);
+                                    const ordered = ['Gold', 'Silver'].filter((c) => next.includes(c));
+                                    return { ...prev, metalColors: ordered };
+                                  });
+                                }}
+                              />
+                              <span>{color}</span>
+                            </label>
+                          );
+                        })}
+                      </div>
                     </div>
                   </div>
                 )}
