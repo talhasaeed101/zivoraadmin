@@ -183,12 +183,26 @@ export default function ReviewDetails() {
                       <strong>{review.qualityRating ? `${review.qualityRating}/5` : '—'}</strong>
                     </div>
                     <div>
-                      <span className="review-detail-label">Likes / Dislikes</span>
+                      <span className="review-detail-label">Helpful / Not helpful</span>
                       <strong>
                         {review.likes ?? 0} / {review.dislikes ?? 0}
                       </strong>
                     </div>
+                    <div>
+                      <span className="review-detail-label">Verified purchase</span>
+                      <strong>{review.verifiedPurchase ? 'Yes' : 'No'}</strong>
+                    </div>
                   </div>
+                  {Array.isArray(review.images) && review.images.length > 0 ? (
+                    <div className="review-detail-photos">
+                      <span className="review-detail-label">Photos</span>
+                      <div className="review-detail-photo-grid">
+                        {review.images.map((url) => (
+                          <img key={url} src={url} alt="" className="review-detail-photo" />
+                        ))}
+                      </div>
+                    </div>
+                  ) : null}
                 </div>
               </section>
             </div>

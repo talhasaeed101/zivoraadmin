@@ -17,9 +17,12 @@ import Reviews from './pages/Reviews.jsx';
 import ReviewDetails from './pages/ReviewDetails.jsx';
 import PromoCodes from './pages/PromoCodes.jsx';
 import PromoCodeForm from './pages/PromoCodeForm.jsx';
+import Campaigns from './pages/Campaigns.jsx';
+import CampaignForm from './pages/CampaignForm.jsx';
 import Messages from './pages/Messages.jsx';
 import Tickets from './pages/Tickets.jsx';
 import Newsletter from './pages/Newsletter.jsx';
+import BackInStock from './pages/BackInStock.jsx';
 
 export default function App() {
   return (
@@ -46,9 +49,13 @@ export default function App() {
               <Route path="/promo-codes" element={<PromoCodes />} />
               <Route path="/promo-codes/new" element={<PromoCodeForm />} />
               <Route path="/promo-codes/:id/edit" element={<PromoCodeForm />} />
+              <Route path="/campaigns" element={<Campaigns />} />
+              <Route path="/campaigns/new" element={<CampaignForm />} />
+              <Route path="/campaigns/:id/edit" element={<CampaignForm />} />
               <Route path="/tickets" element={<Tickets />} />
               <Route path="/messages" element={<Messages />} />
               <Route path="/newsletter" element={<Newsletter />} />
+              <Route path="/back-in-stock" element={<BackInStock />} />
             </Route>
             <Route path="*" element={<Navigate to="/" replace />} />
           </Routes>

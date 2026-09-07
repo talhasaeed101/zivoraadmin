@@ -158,6 +158,14 @@ export const orderApi = {
 
   getOrder: (id) => request(`/admin/orders/${id}`),
 
+  getOrderEmailLogs: (id) => request(`/admin/orders/${id}/email-logs`),
+
+  resendOrderEmail: (id, payload) =>
+    request(`/admin/orders/${id}/resend-email`, {
+      method: 'POST',
+      body: JSON.stringify(payload),
+    }),
+
   updateOrderStatus: (id, payload) =>
     request(`/admin/orders/${id}/status`, {
       method: 'PATCH',
@@ -175,6 +183,8 @@ export const reviewApi = {
   getReviews: (params = {}) => request(`/admin/reviews${buildQueryString(params)}`),
 
   getReview: (id) => request(`/admin/reviews/${id}`),
+
+  getAnalytics: () => request('/admin/reviews/analytics'),
 
   updateReviewStatus: (id, payload) =>
     request(`/admin/reviews/${id}/status`, {
@@ -207,6 +217,29 @@ export const promoCodeApi = {
 
   deletePromoCode: (id) =>
     request(`/promo-codes/${id}`, {
+      method: 'DELETE',
+    }),
+};
+
+export const campaignApi = {
+  getCampaigns: (params = {}) => request(`/campaigns${buildQueryString(params)}`),
+
+  getCampaign: (id) => request(`/campaigns/${id}`),
+
+  createCampaign: (payload) =>
+    request('/campaigns', {
+      method: 'POST',
+      body: JSON.stringify(payload),
+    }),
+
+  updateCampaign: (id, payload) =>
+    request(`/campaigns/${id}`, {
+      method: 'PUT',
+      body: JSON.stringify(payload),
+    }),
+
+  deleteCampaign: (id) =>
+    request(`/campaigns/${id}`, {
       method: 'DELETE',
     }),
 };
@@ -274,6 +307,28 @@ export const ticketApi = {
 export const newsletterApi = {
   getSubscribers: (params = {}) =>
     request(`/admin/newsletter-subscribers${buildQueryString(params)}`),
+};
+
+export const backInStockApi = {
+  getSubscriptions: (params = {}) =>
+    request(`/admin/back-in-stock${buildQueryString(params)}`),
+
+  getSubscription: (id) => request(`/admin/back-in-stock/${id}`),
+
+  cancel: (id) =>
+    request(`/admin/back-in-stock/${id}/cancel`, {
+      method: 'PATCH',
+    }),
+
+  resend: (id) =>
+    request(`/admin/back-in-stock/${id}/resend`, {
+      method: 'POST',
+    }),
+
+  delete: (id) =>
+    request(`/admin/back-in-stock/${id}`, {
+      method: 'DELETE',
+    }),
 };
 
 export const uploadApi = {

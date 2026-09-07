@@ -1,25 +1,36 @@
 import { NavLink, useNavigate } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext.jsx';
+import { ADMIN_PANEL_ROLES } from '../constants/roles.js';
+import { hasAnyRole } from '../constants/permissions.js';
 import NotificationBell from './NotificationBell.jsx';
 import './AdminLayout.css';
 
+/**
+ * All nav items use ADMIN_PANEL_ROLES intentionally.
+ * Backend currently allows every panel role on these modules — do not invent
+ * STAFF/MANAGER hide rules without matching backend middleware.
+ */
 const navLinks = [
-  { label: 'Dashboard', to: '/' },
-  { label: 'Analytics', to: '/analytics' },
-  { label: 'Categories', to: '/categories' },
-  { label: 'Products', to: '/products' },
-  { label: 'Orders', to: '/orders' },
-  { label: 'Customers', to: '/customers' },
-  { label: 'Reviews', to: '/reviews' },
-  { label: 'Promo Codes', to: '/promo-codes' },
-  { label: 'Tickets', to: '/tickets' },
-  { label: 'Messages', to: '/messages' },
-  { label: 'Newsletter', to: '/newsletter' },
+  { label: 'Dashboard', to: '/', roles: ADMIN_PANEL_ROLES },
+  { label: 'Analytics', to: '/analytics', roles: ADMIN_PANEL_ROLES },
+  { label: 'Categories', to: '/categories', roles: ADMIN_PANEL_ROLES },
+  { label: 'Products', to: '/products', roles: ADMIN_PANEL_ROLES },
+  { label: 'Orders', to: '/orders', roles: ADMIN_PANEL_ROLES },
+  { label: 'Customers', to: '/customers', roles: ADMIN_PANEL_ROLES },
+  { label: 'Reviews', to: '/reviews', roles: ADMIN_PANEL_ROLES },
+  { label: 'Promo Codes', to: '/promo-codes', roles: ADMIN_PANEL_ROLES },
+  { label: 'Campaigns', to: '/campaigns', roles: ADMIN_PANEL_ROLES },
+  { label: 'Tickets', to: '/tickets', roles: ADMIN_PANEL_ROLES },
+  { label: 'Messages', to: '/messages', roles: ADMIN_PANEL_ROLES },
+  { label: 'Newsletter', to: '/newsletter', roles: ADMIN_PANEL_ROLES },
+  { label: 'Back In Stock', to: '/back-in-stock', roles: ADMIN_PANEL_ROLES },
 ];
 
 export default function AdminLayout({ title, label = 'Admin Panel', children }) {
   const navigate = useNavigate();
-  const { admin, logout } = useAuth();
+  const { admin, role, logout } = useAuth();
+
+  const visibleLinks = navLinks.filter((link) => hasAnyRole(role, link.roles));
 
   const handleLogout = () => {
     logout();
@@ -35,7 +46,7 @@ export default function AdminLayout({ title, label = 'Admin Panel', children }) 
         </div>
 
         <nav className="sidebar-nav">
-          {navLinks.map((link) => (
+          {visibleLinks.map((link) => (
             <NavLink
               key={link.to}
               to={link.to}
@@ -66,6 +77,7 @@ export default function AdminLayout({ title, label = 'Admin Panel', children }) 
             <div className="header-admin">
               <span className="header-admin-name">{admin?.name || 'Admin'}</span>
               <span className="header-admin-email">{admin?.email}</span>
+              {role ? <span className="header-admin-role">{role}</span> : null}
             </div>
           </div>
         </header>

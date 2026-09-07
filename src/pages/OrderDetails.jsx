@@ -16,6 +16,7 @@ import {
   getShippingFormDefaults,
 } from '../constants/shippingConstants.js';
 import { useSocket } from '../context/SocketContext.jsx';
+import { useAuth } from '../context/AuthContext.jsx';
 import './Orders.css';
 
 const formatPrice = (value) => {
@@ -62,9 +63,26 @@ const formatPaymentMethod = (method) => {
   }
 };
 
+const EMAIL_EVENT_LABELS = {
+  order_placed: 'Order placed',
+  order_confirmed: 'Order confirmed',
+  order_status: 'Order status',
+  order_shipped: 'Order shipped',
+  order_delivered: 'Order delivered',
+  order_cancelled: 'Order cancelled',
+  shipment_update: 'Shipment update',
+  order_created_admin: 'Admin new order',
+};
+
+const getEmailEventLabel = (eventType) => EMAIL_EVENT_LABELS[eventType] || eventType || '—';
+
+const isResendableEmailLog = (log) =>
+  log && (log.status === 'failed' || log.status === 'skipped');
+
 export default function OrderDetails() {
   const { id } = useParams();
   const { onOrderUpdated } = useSocket();
+  const { canManageShipping } = useAuth();
   const [order, setOrder] = useState(null);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
@@ -87,6 +105,29 @@ export default function OrderDetails() {
   const [shippingError, setShippingError] = useState('');
   const [shippingSuccess, setShippingSuccess] = useState('');
   const [copyFeedback, setCopyFeedback] = useState('');
+  const [emailLogs, setEmailLogs] = useState([]);
+  const [emailLogsLoading, setEmailLogsLoading] = useState(false);
+  const [emailLogsError, setEmailLogsError] = useState('');
+  const [emailResendFeedback, setEmailResendFeedback] = useState('');
+  const [emailResendError, setEmailResendError] = useState('');
+  const [emailResendConfirmOpen, setEmailResendConfirmOpen] = useState(false);
+  const [pendingEmailResend, setPendingEmailResend] = useState(null);
+  const [emailResending, setEmailResending] = useState(false);
+
+  const loadEmailLogs = useCallback(async () => {
+    if (!id) return;
+    setEmailLogsLoading(true);
+    setEmailLogsError('');
+    try {
+      const response = await orderApi.getOrderEmailLogs(id);
+      setEmailLogs(response.data?.logs || []);
+    } catch (err) {
+      setEmailLogsError(err.message || 'Failed to load email activity');
+      setEmailLogs([]);
+    } finally {
+      setEmailLogsLoading(false);
+    }
+  }, [id]);
 
   const loadOrder = useCallback(async () => {
     setLoading(true);
@@ -136,6 +177,49 @@ export default function OrderDetails() {
 
     return unsubscribe;
   }, [id, loadOrder, onOrderUpdated]);
+
+  useEffect(() => {
+    loadEmailLogs();
+  }, [id, loadEmailLogs]);
+
+  const requestEmailResend = (log) => {
+    if (!canManageShipping || !isResendableEmailLog(log)) return;
+    setEmailResendFeedback('');
+    setEmailResendError('');
+    setPendingEmailResend(log);
+    setEmailResendConfirmOpen(true);
+  };
+
+  const handleCancelEmailResend = () => {
+    if (emailResending) return;
+    setEmailResendConfirmOpen(false);
+    setPendingEmailResend(null);
+  };
+
+  const handleConfirmEmailResend = async () => {
+    if (!pendingEmailResend || !canManageShipping) return;
+    setEmailResending(true);
+    setEmailResendError('');
+    setEmailResendFeedback('');
+    try {
+      const response = await orderApi.resendOrderEmail(id, {
+        eventType: pendingEmailResend.eventType,
+        recipient: pendingEmailResend.recipient,
+      });
+      if (response.data?.logs) {
+        setEmailLogs(response.data.logs);
+      } else {
+        await loadEmailLogs();
+      }
+      setEmailResendFeedback('Email resent successfully.');
+      setEmailResendConfirmOpen(false);
+      setPendingEmailResend(null);
+    } catch (err) {
+      setEmailResendError(err.message || 'Failed to resend email');
+    } finally {
+      setEmailResending(false);
+    }
+  };
 
   const handleChange = (event) => {
     const { name, value, type, checked } = event.target;
@@ -202,6 +286,10 @@ export default function OrderDetails() {
 
   const handleSaveShipping = async (event) => {
     event.preventDefault();
+    if (!canManageShipping) {
+      setShippingError('Only SUPER_ADMIN or ADMIN can update shipment tracking.');
+      return;
+    }
     if (shippingSaving) return;
 
     setShippingSaving(true);
@@ -305,9 +393,24 @@ export default function OrderDetails() {
         title="Cancel Order"
         message="Are you sure you want to cancel this order? This action cannot be undone."
         confirmLabel="Cancel Order"
+        loadingLabel="Cancelling..."
         loading={saving}
         onConfirm={handleConfirmCancel}
         onCancel={handleCancelConfirm}
+      />
+      <ConfirmModal
+        open={emailResendConfirmOpen}
+        title="Resend Email"
+        message={
+          pendingEmailResend
+            ? `Resend “${getEmailEventLabel(pendingEmailResend.eventType)}” to ${pendingEmailResend.recipient}?`
+            : 'Resend this order email?'
+        }
+        confirmLabel="Resend"
+        loadingLabel="Sending..."
+        loading={emailResending}
+        onConfirm={handleConfirmEmailResend}
+        onCancel={handleCancelEmailResend}
       />
       <div className="orders-page">
         <div className="order-detail-toolbar">
@@ -479,6 +582,62 @@ export default function OrderDetails() {
               </section>
             )}
 
+            <section className="order-detail-card order-detail-card-full email-activity-card">
+              <h3 className="order-detail-heading">Email Activity</h3>
+
+              {emailResendFeedback && (
+                <div className="alert-banner alert-success">{emailResendFeedback}</div>
+              )}
+              {emailResendError && (
+                <div className="alert-banner alert-error">{emailResendError}</div>
+              )}
+              {emailLogsError && (
+                <div className="alert-banner alert-error">{emailLogsError}</div>
+              )}
+
+              {emailLogsLoading ? (
+                <p className="order-empty-text">Loading email activity...</p>
+              ) : emailLogsError ? null : emailLogs.length === 0 ? (
+                <p className="order-empty-text">No email activity for this order yet.</p>
+              ) : (
+                <div className="email-activity-list">
+                  {emailLogs.map((log) => (
+                    <div key={log.id} className="email-activity-row">
+                      <div className="email-activity-main">
+                        <div className="email-activity-title-row">
+                          <strong>{getEmailEventLabel(log.eventType)}</strong>
+                          <span className={`status-badge status-badge-${log.status || 'pending'}`}>
+                            {log.status || 'pending'}
+                          </span>
+                          {log.isManualResend && (
+                            <span className="email-activity-manual">Manual</span>
+                          )}
+                        </div>
+                        <div className="email-activity-meta">
+                          <span>{log.recipient || '—'}</span>
+                          <span>Attempts: {log.attemptCount ?? 0}</span>
+                          <span>{formatDate(log.createdAt)}</span>
+                        </div>
+                        {log.status === 'failed' && log.error && (
+                          <p className="email-activity-error">{String(log.error)}</p>
+                        )}
+                      </div>
+                      {canManageShipping && isResendableEmailLog(log) && (
+                        <button
+                          type="button"
+                          className="btn-secondary"
+                          disabled={emailResending}
+                          onClick={() => requestEmailResend(log)}
+                        >
+                          Resend
+                        </button>
+                      )}
+                    </div>
+                  ))}
+                </div>
+              )}
+            </section>
+
             <section className="order-detail-card order-detail-card-full shipping-tracking-card">
               <h3 className="order-detail-heading">Shipping & Tracking</h3>
 
@@ -545,6 +704,7 @@ export default function OrderDetails() {
               {shippingSuccess && <div className="alert-banner alert-success">{shippingSuccess}</div>}
               {shippingError && <div className="alert-banner alert-error">{shippingError}</div>}
 
+              {canManageShipping ? (
               <form className="shipping-form" onSubmit={handleSaveShipping}>
                 <div className="admin-form-grid">
                   <div className="admin-form-field">
@@ -663,6 +823,12 @@ export default function OrderDetails() {
                   </button>
                 </div>
               </form>
+              ) : (
+                <p className="shipping-readonly-note">
+                  Shipment tracking can be updated by SUPER_ADMIN or ADMIN roles only. You can still
+                  view tracking details above.
+                </p>
+              )}
 
               {Array.isArray(order.shippingHistory) && order.shippingHistory.length > 0 && (
                 <div className="shipment-timeline">

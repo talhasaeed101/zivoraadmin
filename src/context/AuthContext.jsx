@@ -1,5 +1,6 @@
 import { createContext, useCallback, useContext, useEffect, useMemo, useState } from 'react';
 import { adminAuthApi, getStoredToken, setStoredToken } from '../services/api.js';
+import { canAccessAdminPanel, canManageShipping } from '../constants/permissions.js';
 
 const ADMIN_KEY = 'zivora_admin_data';
 
@@ -39,6 +40,12 @@ export function AuthProvider({ children }) {
     const response = await adminAuthApi.login(email, password);
     const { admin: adminData, token: authToken } = response.data;
 
+    if (!canAccessAdminPanel(adminData?.role)) {
+      setStoredToken(null);
+      setStoredAdmin(null);
+      throw new Error('This account is not authorized for the admin panel.');
+    }
+
     setStoredToken(authToken);
     setStoredAdmin(adminData);
     setToken(authToken);
@@ -61,8 +68,15 @@ export function AuthProvider({ children }) {
 
       try {
         const response = await adminAuthApi.getProfile();
-        setAdmin(response.data);
-        setStoredAdmin(response.data);
+        const profile = response.data;
+
+        if (!canAccessAdminPanel(profile?.role)) {
+          logout();
+          return;
+        }
+
+        setAdmin(profile);
+        setStoredAdmin(profile);
       } catch {
         logout();
       } finally {
@@ -73,16 +87,21 @@ export function AuthProvider({ children }) {
     initAuth();
   }, [logout]);
 
+  const role = admin?.role || null;
+
   const value = useMemo(
     () => ({
       admin,
       token,
       loading,
+      role,
       isAuthenticated: Boolean(token),
+      canAccessPanel: canAccessAdminPanel(role),
+      canManageShipping: canManageShipping(role),
       login,
       logout,
     }),
-    [admin, token, loading, login, logout]
+    [admin, token, loading, role, login, logout]
   );
 
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;

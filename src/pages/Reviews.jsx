@@ -3,7 +3,23 @@ import { Link } from 'react-router-dom';
 import AdminLayout from '../components/AdminLayout.jsx';
 import ConfirmModal from '../components/ConfirmModal.jsx';
 import { reviewApi } from '../services/api.js';
+import './Dashboard.css';
 import './Reviews.css';
+
+const EMPTY_ANALYTICS = {
+  total: 0,
+  published: 0,
+  pending: 0,
+  rejected: 0,
+  averageRating: 0,
+  rating5: 0,
+  rating4: 0,
+  rating3: 0,
+  rating2: 0,
+  rating1: 0,
+  verifiedPurchaseCount: 0,
+  verifiedPurchasePercent: 0,
+};
 
 const formatDate = (value) => {
   if (!value) {
@@ -38,6 +54,7 @@ const getCustomerLabel = (review) => {
 export default function Reviews() {
   const [reviews, setReviews] = useState([]);
   const [pagination, setPagination] = useState(null);
+  const [analytics, setAnalytics] = useState(EMPTY_ANALYTICS);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
   const [successMessage, setSuccessMessage] = useState('');
@@ -45,6 +62,7 @@ export default function Reviews() {
   const [search, setSearch] = useState('');
   const [statusFilter, setStatusFilter] = useState('');
   const [ratingFilter, setRatingFilter] = useState('');
+  const [verifiedFilter, setVerifiedFilter] = useState('');
   const [page, setPage] = useState(1);
   const [actionReviewId, setActionReviewId] = useState(null);
   const [deleteTarget, setDeleteTarget] = useState(null);
@@ -59,6 +77,7 @@ export default function Reviews() {
         search: search || undefined,
         status: statusFilter || undefined,
         rating: ratingFilter || undefined,
+        verified: verifiedFilter || undefined,
         page,
         limit: 10,
         sort: 'newest',
@@ -67,6 +86,7 @@ export default function Reviews() {
         if (isMounted) {
           setReviews(response.data?.reviews || []);
           setPagination(response.data?.pagination || null);
+          setAnalytics(response.data?.analytics || EMPTY_ANALYTICS);
           setError('');
         }
       })
@@ -86,7 +106,7 @@ export default function Reviews() {
     return () => {
       isMounted = false;
     };
-  }, [search, statusFilter, ratingFilter, page, reloadKey]);
+  }, [search, statusFilter, ratingFilter, verifiedFilter, page, reloadKey]);
 
   const handleSearchSubmit = (event) => {
     event.preventDefault();
@@ -107,6 +127,12 @@ export default function Reviews() {
     setRatingFilter(event.target.value);
   };
 
+  const handleVerifiedFilterChange = (event) => {
+    setLoading(true);
+    setPage(1);
+    setVerifiedFilter(event.target.value);
+  };
+
   const handlePageChange = (nextPage) => {
     if (nextPage < 1 || (pagination && nextPage > pagination.totalPages)) {
       return;
@@ -123,7 +149,9 @@ export default function Reviews() {
 
     try {
       await reviewApi.updateReviewStatus(reviewId, { status });
-      setSuccessMessage(`Review ${status === 'approved' ? 'approved' : status === 'rejected' ? 'rejected' : 'updated'} successfully.`);
+      setSuccessMessage(
+        `Review ${status === 'approved' ? 'approved' : status === 'rejected' ? 'rejected' : 'updated'} successfully.`
+      );
       setLoading(true);
       setReloadKey((current) => current + 1);
     } catch (err) {
@@ -158,6 +186,43 @@ export default function Reviews() {
   return (
     <AdminLayout title="Reviews" label="Moderation">
       <div className="reviews-page">
+        <div className="reviews-analytics-grid" aria-label="Review analytics">
+          <div className="dashboard-stat-card">
+            <span className="dashboard-stat-label">Total</span>
+            <strong className="dashboard-stat-value">{analytics.total}</strong>
+          </div>
+          <div className="dashboard-stat-card">
+            <span className="dashboard-stat-label">Published</span>
+            <strong className="dashboard-stat-value">{analytics.published}</strong>
+          </div>
+          <div className="dashboard-stat-card">
+            <span className="dashboard-stat-label">Pending</span>
+            <strong className="dashboard-stat-value">{analytics.pending}</strong>
+          </div>
+          <div className="dashboard-stat-card">
+            <span className="dashboard-stat-label">Average rating</span>
+            <strong className="dashboard-stat-value">{Number(analytics.averageRating || 0).toFixed(1)}</strong>
+          </div>
+          <div className="dashboard-stat-card">
+            <span className="dashboard-stat-label">5★</span>
+            <strong className="dashboard-stat-value">{analytics.rating5}</strong>
+          </div>
+          <div className="dashboard-stat-card">
+            <span className="dashboard-stat-label">4★</span>
+            <strong className="dashboard-stat-value">{analytics.rating4}</strong>
+          </div>
+          <div className="dashboard-stat-card">
+            <span className="dashboard-stat-label">3★ / 2★ / 1★</span>
+            <strong className="dashboard-stat-value">
+              {analytics.rating3} / {analytics.rating2} / {analytics.rating1}
+            </strong>
+          </div>
+          <div className="dashboard-stat-card">
+            <span className="dashboard-stat-label">Verified purchase</span>
+            <strong className="dashboard-stat-value">{analytics.verifiedPurchasePercent}%</strong>
+          </div>
+        </div>
+
         <div className="page-toolbar">
           <form className="page-toolbar-left" onSubmit={handleSearchSubmit}>
             <input
@@ -167,21 +232,13 @@ export default function Reviews() {
               value={searchInput}
               onChange={(event) => setSearchInput(event.target.value)}
             />
-            <select
-              className="filter-select"
-              value={statusFilter}
-              onChange={handleStatusFilterChange}
-            >
+            <select className="filter-select" value={statusFilter} onChange={handleStatusFilterChange}>
               <option value="">All Statuses</option>
               <option value="pending">Pending</option>
               <option value="approved">Approved</option>
               <option value="rejected">Rejected</option>
             </select>
-            <select
-              className="filter-select"
-              value={ratingFilter}
-              onChange={handleRatingFilterChange}
-            >
+            <select className="filter-select" value={ratingFilter} onChange={handleRatingFilterChange}>
               <option value="">All Ratings</option>
               <option value="5">5 Stars</option>
               <option value="4">4 Stars</option>
@@ -189,23 +246,44 @@ export default function Reviews() {
               <option value="2">2 Stars</option>
               <option value="1">1 Star</option>
             </select>
+            <select
+              className="filter-select"
+              value={verifiedFilter}
+              onChange={handleVerifiedFilterChange}
+            >
+              <option value="">All purchases</option>
+              <option value="true">Verified only</option>
+              <option value="false">Unverified only</option>
+            </select>
             <button type="submit" className="btn-secondary">
               Apply
             </button>
           </form>
         </div>
 
-        {successMessage && (
-          <div className="alert-banner alert-success">{successMessage}</div>
-        )}
+        {successMessage && <div className="alert-banner alert-success">{successMessage}</div>}
 
-        {error && <div className="alert-banner alert-error">{error}</div>}
+        {error ? (
+          <div className="alert-banner alert-error">
+            <span>{error}</span>
+            <button
+              type="button"
+              className="btn-text"
+              onClick={() => {
+                setLoading(true);
+                setReloadKey((current) => current + 1);
+              }}
+            >
+              Retry
+            </button>
+          </div>
+        ) : null}
 
         {loading ? (
           <div className="state-card">Loading reviews...</div>
         ) : reviews.length === 0 ? (
           <div className="state-card">
-            {search || statusFilter || ratingFilter
+            {search || statusFilter || ratingFilter || verifiedFilter
               ? 'No reviews match your filters.'
               : 'No reviews yet.'}
           </div>
@@ -219,8 +297,9 @@ export default function Reviews() {
                     <th>Customer</th>
                     <th>Rating</th>
                     <th>Review Title</th>
+                    <th>Verified</th>
                     <th>Status</th>
-                    <th>Likes / Dislikes</th>
+                    <th>Helpful</th>
                     <th>Date</th>
                     <th>Actions</th>
                   </tr>
@@ -246,6 +325,7 @@ export default function Reviews() {
                         <td>{getCustomerLabel(review)}</td>
                         <td>{review.rating}/5</td>
                         <td>{review.title || '—'}</td>
+                        <td>{review.verifiedPurchase ? 'Yes' : 'No'}</td>
                         <td>
                           <span className={`status-badge status-badge-${review.status}`}>
                             {review.status}

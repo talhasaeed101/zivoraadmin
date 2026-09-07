@@ -141,6 +141,16 @@
   color: #767676;
 }
 
+.header-admin-role {
+  margin-top: 2px;
+  font-family: Inter, sans-serif;
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: #967259;
+}
+
 .dashboard-content {
   padding: 32px 40px;
 }

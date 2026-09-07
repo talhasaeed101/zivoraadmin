@@ -5,6 +5,7 @@ export default function ConfirmModal({
   title,
   message,
   confirmLabel = 'Delete',
+  loadingLabel = 'Deleting...',
   loading = false,
   onConfirm,
   onCancel,
@@ -31,7 +32,7 @@ export default function ConfirmModal({
             Cancel
           </button>
           <button type="button" className="btn-danger" onClick={onConfirm} disabled={loading}>
-            {loading ? 'Deleting...' : confirmLabel}
+            {loading ? loadingLabel : confirmLabel}
           </button>
         </div>
       </div>
