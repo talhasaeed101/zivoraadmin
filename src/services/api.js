@@ -273,7 +273,18 @@ export const notificationApi = {
 };
 
 export const analyticsApi = {
-  getAnalytics: (days = 30) => request(`/admin/analytics?days=${days}`),
+  getAnalytics: (params = {}) => {
+    if (typeof params === 'number') {
+      return request(`/admin/analytics?days=${params}`);
+    }
+    const query = new URLSearchParams();
+    Object.entries(params || {}).forEach(([key, value]) => {
+      if (value === undefined || value === null || value === '') return;
+      query.set(key, String(value));
+    });
+    const qs = query.toString();
+    return request(`/admin/analytics${qs ? `?${qs}` : ''}`);
+  },
 };
 
 export const contactApi = {
