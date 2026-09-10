@@ -342,6 +342,23 @@ export const backInStockApi = {
     }),
 };
 
+export const priceAlertApi = {
+  getAlerts: (params = {}) =>
+    request(`/admin/price-alerts${buildQueryString(params)}`),
+
+  getAlert: (id) => request(`/admin/price-alerts/${id}`),
+
+  cancel: (id) =>
+    request(`/admin/price-alerts/${id}/cancel`, {
+      method: 'PATCH',
+    }),
+
+  delete: (id) =>
+    request(`/admin/price-alerts/${id}`, {
+      method: 'DELETE',
+    }),
+};
+
 export const uploadApi = {
   getProductImagePresignedUrl: async (filename, fileSize) => {
     return request('/uploads/product-images/presigned-url', {

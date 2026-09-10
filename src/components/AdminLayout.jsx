@@ -24,6 +24,7 @@ const navLinks = [
   { label: 'Messages', to: '/messages', roles: ADMIN_PANEL_ROLES },
   { label: 'Newsletter', to: '/newsletter', roles: ADMIN_PANEL_ROLES },
   { label: 'Back In Stock', to: '/back-in-stock', roles: ADMIN_PANEL_ROLES },
+  { label: 'Price Alerts', to: '/price-alerts', roles: ADMIN_PANEL_ROLES },
 ];
 
 export default function AdminLayout({ title, label = 'Admin Panel', children }) {

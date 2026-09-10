@@ -23,6 +23,7 @@ import Messages from './pages/Messages.jsx';
 import Tickets from './pages/Tickets.jsx';
 import Newsletter from './pages/Newsletter.jsx';
 import BackInStock from './pages/BackInStock.jsx';
+import PriceAlerts from './pages/PriceAlerts.jsx';
 
 export default function App() {
   return (
@@ -56,6 +57,7 @@ export default function App() {
               <Route path="/messages" element={<Messages />} />
               <Route path="/newsletter" element={<Newsletter />} />
               <Route path="/back-in-stock" element={<BackInStock />} />
+              <Route path="/price-alerts" element={<PriceAlerts />} />
             </Route>
             <Route path="*" element={<Navigate to="/" replace />} />
           </Routes>
