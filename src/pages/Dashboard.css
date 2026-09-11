@@ -318,41 +318,4 @@
   }
 }
 
-.analytics-toolbar {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 12px;
-  align-items: center;
-}
 
-.analytics-bar-chart {
-  display: flex;
-  align-items: flex-end;
-  gap: 6px;
-  min-height: 140px;
-  padding: 12px 4px;
-  overflow-x: auto;
-  border: 1px solid #e5e5e5;
-  background: #fff;
-}
-
-.analytics-bar-col {
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  gap: 6px;
-  min-width: 28px;
-}
-
-.analytics-bar {
-  width: 16px;
-  background: #967259;
-  border-radius: 2px 2px 0 0;
-}
-
-.analytics-bar-label {
-  font-family: Inter, sans-serif;
-  font-size: 9px;
-  color: #767676;
-  writing-mode: horizontal-tb;
-}
