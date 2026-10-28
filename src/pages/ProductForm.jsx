@@ -1,5 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { Link, useNavigate, useParams } from 'react-router-dom';
+import ReactQuill from 'react-quill-new';
+import 'react-quill-new/dist/quill.snow.css';
 import AdminLayout from '../components/AdminLayout.jsx';
 import CustomizationOptionsSection from '../components/CustomizationOptionsSection.jsx';
 import { categoryApi, productApi, uploadApi } from '../services/api.js';
@@ -17,6 +19,32 @@ import './Products.css';
 
 const MIN_PRODUCT_IMAGES = 8;
 const MAX_PRODUCT_IMAGES = 12;
+
+const QUILL_MODULES = {
+  toolbar: [
+    [{ header: [1, 2, 3, 4, 5, false] }],
+    ['bold', 'italic', 'underline', 'strike'],
+    [{ list: 'ordered' }, { list: 'bullet' }],
+    [{ color: [] }, { background: [] }],
+    ['blockquote', 'code-block'],
+    ['link', 'clean'],
+  ],
+};
+
+const QUILL_FORMATS = [
+  'header',
+  'bold',
+  'italic',
+  'underline',
+  'strike',
+  'list',
+  'bullet',
+  'color',
+  'background',
+  'blockquote',
+  'code-block',
+  'link',
+];
 
 const MAX_SOURCE_IMAGE_BYTES = 15 * 1024 * 1024; // 15 MB
 
@@ -619,10 +647,14 @@ export default function ProductForm() {
             metalColors: Array.isArray(form.metalColors) ? form.metalColors : [],
           };
 
+      const cleanDescription = form.description
+        ? form.description.replace(/^(<p><br><\/p>|<p><\/p>|\s)+$/gi, '').trim()
+        : '';
+
       const payload = {
         title: form.title.trim(),
         shortDescription: form.shortDescription.trim() || undefined,
-        description: form.description.trim() || undefined,
+        description: cleanDescription || undefined,
         category: form.category,
         brand: form.brand.trim() || undefined,
         images: nextImageUrls,
@@ -1127,14 +1159,19 @@ export default function ProductForm() {
 
                   <div className="admin-form-field admin-form-field-full">
                     <label htmlFor="description">Product Description</label>
-                    <textarea
-                      id="description"
-                      name="description"
-                      value={form.description}
-                      onChange={handleChange}
-                      disabled={saving}
-                      rows={6}
-                    />
+                    <div className="quill-editor-wrapper">
+                      <ReactQuill
+                        theme="snow"
+                        value={form.description}
+                        onChange={(content) =>
+                          setForm((prev) => ({ ...prev, description: content }))
+                        }
+                        readOnly={saving}
+                        modules={QUILL_MODULES}
+                        formats={QUILL_FORMATS}
+                        placeholder="Write product details, bullet points, specifications, and styling tips..."
+                      />
+                    </div>
                   </div>
 
                   <div className="admin-form-field">
